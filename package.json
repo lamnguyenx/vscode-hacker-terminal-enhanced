@@ -1,0 +1,45 @@
+{
+	"name": "hacker-terminal-enhanced",
+	"displayName": "Terminal Enhanced",
+	"description": "Copy the last command and its output from the active terminal in an LLM-friendly format.",
+	"version": "2026.9.3",
+	"publisher": "lamnguyenx",
+	"author": "lamnguyenx <lamfm95@gmail.com>",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/lamnguyenx/vscode-hacker-terminal-enhanced.git"
+	},
+	"icon": "media/icon.png",
+	"engines": {
+		"vscode": "^1.100.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onCommand:terminalEnhanced.copyLast"
+	],
+	"main": "./out/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "terminalEnhanced.copyLast",
+				"title": "Copy Last Command and Output",
+				"category": "Terminal Enhanced"
+			}
+		]
+	},
+	"scripts": {
+		"compile": "tsc -p ./",
+		"watch": "tsc -w -p ./",
+		"vscode:prepublish": "npm run compile",
+		"package": "vsce package"
+	},
+	"devDependencies": {
+		"@types/node": "^26.0.0",
+		"@types/vscode": "^1.100.0",
+		"@vscode/vsce": "^3.9.2",
+		"typescript": "^5.5.0"
+	}
+}

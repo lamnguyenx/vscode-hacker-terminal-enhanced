@@ -1,0 +1,10 @@
+*.vsix
+.vscode/**
+exp/**
+src/**
+_refs/**
+docs/**
+Makefile
+tsconfig.json
+**/*.map
+.git/
