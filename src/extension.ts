@@ -29,7 +29,7 @@ function copyLast(): void {
 	const text = formatExecution(captured);
 	void vscode.env.clipboard.writeText(text).then(() => {
 		void vscode.window.setStatusBarMessage(
-			'$(check) Terminal Enhanced: copied last command + output',
+			'$(check) Hacker Terminal Enhanced: copied last command + output',
 			3000
 		);
 	});

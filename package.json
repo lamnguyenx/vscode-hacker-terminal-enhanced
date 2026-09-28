@@ -1,6 +1,6 @@
 {
 	"name": "hacker-terminal-enhanced",
-	"displayName": "Terminal Enhanced",
+	"displayName": "Hacker Terminal Enhanced",
 	"description": "Copy the last command and its output from the active terminal in an LLM-friendly format.",
 	"version": "2026.9.3",
 	"publisher": "lamnguyenx",
@@ -26,7 +26,17 @@
 			{
 				"command": "terminalEnhanced.copyLast",
 				"title": "Copy Last Command and Output",
-				"category": "Terminal Enhanced"
+				"category": "Hacker Terminal Enhanced"
+			}
+		],
+		"keybindings": [
+			{
+				"command": "terminalEnhanced.copyLast",
+				"key": "ctrl+cmd+shift+c",
+				"mac": "ctrl+cmd+shift+c",
+				"linux": "ctrl+alt+shift+c",
+				"win": "ctrl+alt+shift+c",
+				"when": "terminalFocus"
 			}
 		]
 	},
