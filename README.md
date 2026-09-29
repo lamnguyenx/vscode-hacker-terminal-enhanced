@@ -38,8 +38,10 @@ nothing to commit, working tree clean
 
 - Requires [shell integration](https://code.visualstudio.com/docs/terminal/shell-integration)
   to be enabled in the terminal (default for bash, zsh, fish, pwsh).
-- Only captures commands that are executed **after** the extension activates.
-  The VS Code stable API does not offer retroactive terminal-buffer reads.
+- Captures commands that run after the window starts. The extension activates
+  at `onStartupFinished` (and on its command), so the first command of a
+  session is tracked; the VS Code stable API offers no retroactive
+  terminal-buffer reads.
 - **Restored terminals have no history.** When VS Code is force-quit (or
   crashes) and session persistence revives the terminal, the last pre-restart
   command cannot be copied. Run any command in the restored terminal (even a
@@ -56,3 +58,36 @@ nothing to commit, working tree clean
 make build      # npm install + compile + package *.vsix
 make install    # build + install into VS Code and code-server
 ```
+
+## Testing
+
+The end-to-end suite is Playwright-based and drives the **running code-server
+workbench** over CDP (no browser is launched). All arrange/act goes through the
+[REST Control](https://github.com/lamnguyenx/vscode-hacker-rest-control)
+endpoint; Playwright only asserts the browser-visible result (status-bar echo,
+clipboard, warning toasts). See the meta repo's
+[`docs/important/how-to-test-all.md`](../../../docs/important/how-to-test-all.md)
+for the model and the code-server/CDP topology.
+
+```bash
+# Prereqs: code-server running with this extension installed (`make install`),
+# and the CDP browser reachable on CDP_PORT (9024 by default).
+
+npm run typecheck:tests     # typecheck the E2E suite
+npm run test:e2e            # or: make test-e2e
+```
+
+Environment overrides: `CDP_PORT` (browser CDP port), `HACKER_REST_CONTROL_PORT`
+(REST Control port), `CODE_SERVER_URL` (workspace URL the tests expect).
+
+The specs live in [`tests/playwright/`](tests/playwright/):
+`terminal-enhanced.spec.ts` plus the shared `rest.ts` / `workbench.ts` helpers.
+The first test reloads the window to force a fresh extension host, so it takes
+longer than the others (~45s); it is the regression guard for the
+`onStartupFinished` activation fix — without it, the first command of a session
+is never captured.
+
+Full setup, gotchas and known limits:
+[`docs/important/how-to-test.md`](docs/important/how-to-test.md). Background and
+the debugging log:
+[`docs/plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md`](docs/plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md).

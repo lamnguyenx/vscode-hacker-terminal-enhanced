@@ -4,7 +4,11 @@ exp/**
 src/**
 _refs/**
 docs/**
+tests/**
 Makefile
 tsconfig.json
+tsconfig.tests.json
+playwright.config.ts
+test-results/**
 **/*.map
 .git/

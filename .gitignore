@@ -16,5 +16,11 @@ __pycache__/
 exp/
 .vscode-test/
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.last-run.json
+
 # OS
 .DS_Store

@@ -18,6 +18,7 @@
 		"Other"
 	],
 	"activationEvents": [
+		"onStartupFinished",
 		"onCommand:terminalEnhanced.copyLast"
 	],
 	"main": "./out/extension.js",
@@ -43,10 +44,13 @@
 	"scripts": {
 		"compile": "tsc -p ./",
 		"watch": "tsc -w -p ./",
+		"typecheck:tests": "tsc -p tsconfig.tests.json",
+		"test:e2e": "playwright test --config playwright.config.ts",
 		"vscode:prepublish": "npm run compile",
 		"package": "vsce package"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.63.0",
 		"@types/node": "^26.0.0",
 		"@types/vscode": "^1.100.0",
 		"@vscode/vsce": "^3.9.2",
