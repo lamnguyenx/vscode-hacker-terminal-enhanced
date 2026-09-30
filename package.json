@@ -1,8 +1,8 @@
 {
 	"name": "hacker-terminal-enhanced",
 	"displayName": "Hacker Terminal Enhanced",
-	"description": "Copy the last command and its output from the active terminal in an LLM-friendly format.",
-	"version": "2026.9.3",
+	"description": "Browse and copy recent terminal commands and their output in an LLM-friendly format.",
+	"version": "2026.9.4",
 	"publisher": "lamnguyenx",
 	"author": "lamnguyenx <lamfm95@gmail.com>",
 	"license": "MIT",
@@ -19,32 +19,70 @@
 	],
 	"activationEvents": [
 		"onStartupFinished",
-		"onCommand:terminalEnhanced.copyLast"
+		"onCommand:terminalEnhanced.showHistory"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
 		"commands": [
 			{
-				"command": "terminalEnhanced.copyLast",
-				"title": "Copy Last Command and Output",
+				"command": "terminalEnhanced.showHistory",
+				"title": "Show Command History",
+				"category": "Hacker Terminal Enhanced"
+			},
+			{
+				"command": "terminalEnhanced.clearHistory",
+				"title": "Clear Command History",
+				"category": "Hacker Terminal Enhanced"
+			},
+			{
+				"command": "terminalEnhanced.hideHistory",
+				"title": "Hide Command History",
 				"category": "Hacker Terminal Enhanced"
 			}
 		],
 		"keybindings": [
 			{
-				"command": "terminalEnhanced.copyLast",
+				"command": "terminalEnhanced.showHistory",
 				"key": "ctrl+cmd+shift+c",
 				"mac": "ctrl+cmd+shift+c",
 				"linux": "ctrl+alt+shift+c",
 				"win": "ctrl+alt+shift+c",
 				"when": "terminalFocus"
 			}
-		]
+		],
+		"configuration": {
+			"title": "Hacker Terminal Enhanced",
+			"properties": {
+				"terminalEnhanced.historySize": {
+					"type": "number",
+					"default": 10,
+					"minimum": 1,
+					"description": "How many recent commands to keep in the history popup."
+				},
+				"terminalEnhanced.maxOutputLength": {
+					"type": "number",
+					"default": 1000000,
+					"minimum": 1000,
+					"description": "Maximum number of characters of a command's output to capture (per command)."
+				}
+			}
+		},
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "terminalEnhanced.hideHistory",
+					"when": "false"
+				}
+			]
+		}
 	},
 	"scripts": {
-		"compile": "tsc -p ./",
+		"build:webview": "bun build src/webview/popup.ts --outfile media/popup.js --target browser --format iife",
+		"compile": "tsc -p ./ && npm run build:webview",
 		"watch": "tsc -w -p ./",
+		"typecheck:webview": "tsc -p tsconfig.webview.json",
 		"typecheck:tests": "tsc -p tsconfig.tests.json",
+		"test:units": "bun tests/units/history_check.ts && bun tests/units/store_check.ts",
 		"test:e2e": "playwright test --config playwright.config.ts",
 		"vscode:prepublish": "npm run compile",
 		"package": "vsce package"

@@ -8,6 +8,7 @@ tests/**
 Makefile
 tsconfig.json
 tsconfig.tests.json
+tsconfig.webview.json
 playwright.config.ts
 test-results/**
 **/*.map

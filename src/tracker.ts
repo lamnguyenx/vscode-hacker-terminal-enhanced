@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import { stripNonPrintable } from './ansi';
 import { CapturedExecution } from './format';
-
-const MAX_OUTPUT_LENGTH = 100_000;
+import { HistoryStore } from './store';
 
 interface PendingCapture {
 	startTime: number;
@@ -12,34 +11,56 @@ interface PendingCapture {
 }
 
 const pendingMap = new Map<vscode.Terminal, PendingCapture>();
-const capturedMap = new Map<vscode.Terminal, CapturedExecution>();
 
-export function activateTracker(context: vscode.ExtensionContext): void {
+/**
+ * Track terminal executions and persist each finished one to the history
+ * store. The store is global (across terminals and windows) and persisted to
+ * disk, so the popup can browse commands from earlier sessions too.
+ */
+export function activateTracker(
+	context: vscode.ExtensionContext,
+	store: HistoryStore,
+	getMaxOutputLength: () => number
+): void {
 	context.subscriptions.push(
-		vscode.window.onDidStartTerminalShellExecution(onStart),
-		vscode.window.onDidEndTerminalShellExecution(onEnd),
-		vscode.window.onDidCloseTerminal(onClose),
+		vscode.window.onDidStartTerminalShellExecution(event => {
+			onStart(event, getMaxOutputLength());
+		}),
+		vscode.window.onDidEndTerminalShellExecution(event => {
+			onEnd(event, store);
+		}),
+		vscode.window.onDidCloseTerminal(onClose)
 	);
 }
 
-function onStart(event: vscode.TerminalShellExecutionStartEvent): void {
+function onStart(event: vscode.TerminalShellExecutionStartEvent, maxOutputLength: number): void {
 	const { terminal, execution } = event;
-	const startTime = Date.now();
-	const cwd = execution.cwd?.fsPath;
-	const commandLine = execution.commandLine.value;
-
-	const outputPromise = collectOutput(execution);
-
-	pendingMap.set(terminal, { startTime, cwd, commandLine, outputPromise });
+	pendingMap.set(terminal, {
+		startTime: Date.now(),
+		cwd: execution.cwd?.fsPath,
+		commandLine: execution.commandLine.value,
+		outputPromise: collectOutput(execution, maxOutputLength),
+	});
 }
 
-async function collectOutput(execution: vscode.TerminalShellExecution): Promise<string> {
+/**
+ * Drain the execution's output stream.
+ *
+ * Note: VS Code's shell-integration data stream drops output that arrives
+ * before the consumer registers (a race in `ShellExecutionDataStream`), which
+ * can leave the very fastest shell builtins (e.g. `echo`) with no output. This
+ * is a platform limitation; external commands are captured normally.
+ */
+async function collectOutput(
+	execution: vscode.TerminalShellExecution,
+	maxOutputLength: number
+): Promise<string> {
 	let buffer = '';
 	try {
 		for await (const chunk of execution.read()) {
 			buffer += chunk;
-			if (buffer.length > MAX_OUTPUT_LENGTH) {
-				buffer = buffer.slice(0, MAX_OUTPUT_LENGTH) + '\n[output truncated]';
+			if (buffer.length > maxOutputLength) {
+				buffer = buffer.slice(0, maxOutputLength) + '\n[output truncated]';
 				break;
 			}
 		}
@@ -49,16 +70,15 @@ async function collectOutput(execution: vscode.TerminalShellExecution): Promise<
 	return stripNonPrintable(buffer);
 }
 
-function onEnd(event: vscode.TerminalShellExecutionEndEvent): void {
+function onEnd(event: vscode.TerminalShellExecutionEndEvent, store: HistoryStore): void {
 	const { terminal, exitCode } = event;
 	const pending = pendingMap.get(terminal);
 	if (!pending) {
 		return;
 	}
-
 	pendingMap.delete(terminal);
 
-	pending.outputPromise.then(output => {
+	void pending.outputPromise.then(output => {
 		const captured: CapturedExecution = {
 			commandLine: pending.commandLine,
 			cwd: pending.cwd,
@@ -67,15 +87,14 @@ function onEnd(event: vscode.TerminalShellExecutionEndEvent): void {
 			startTime: pending.startTime,
 			endTime: Date.now(),
 		};
-		capturedMap.set(terminal, captured);
+		try {
+			store.add(captured);
+		} catch (error) {
+			console.error('[hacker-terminal-enhanced] failed to persist command', error);
+		}
 	});
 }
 
 function onClose(terminal: vscode.Terminal): void {
 	pendingMap.delete(terminal);
-	capturedMap.delete(terminal);
-}
-
-export function getCaptured(terminal: vscode.Terminal): CapturedExecution | undefined {
-	return capturedMap.get(terminal);
 }

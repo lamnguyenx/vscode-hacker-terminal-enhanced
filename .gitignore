@@ -2,6 +2,7 @@
 out/
 build/
 *.vsix
+media/popup.js
 
 # Dependencies
 node_modules/

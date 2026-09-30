@@ -6,7 +6,7 @@ VSIX    := build/$(EXT_ID).vsix
 
 CDP_PORT ?= 9024
 
-.PHONY: build install install-code install-code-server clean vsix test-e2e
+.PHONY: build install install-code install-code-server clean vsix test-units typecheck-webview typecheck-tests test-e2e
 
 build: vsix
 
@@ -17,6 +17,18 @@ install-code: build
 
 install-code-server: build
 	code-server --install-extension $(VSIX) --force
+
+## Pure-logic checks (bun; no host, no compile).
+test-units:
+	bun tests/units/history_check.ts
+	bun tests/units/store_check.ts
+
+## Strict typecheck of the webview bundle + the committed test suite.
+typecheck-webview:
+	npx tsc -p tsconfig.webview.json
+
+typecheck-tests:
+	npx tsc -p tsconfig.tests.json
 
 ## Playwright E2E tests (REST Control arranges/acts; CDP browser asserts).
 test-e2e:

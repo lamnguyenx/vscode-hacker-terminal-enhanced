@@ -1,40 +1,57 @@
 import * as vscode from 'vscode';
-import { activateTracker, getCaptured } from './tracker';
-import { formatExecution } from './format';
+import { clearHistory, hideHistory, showHistory } from './popup';
+import { HistoryStore } from './store';
+import { activateTracker } from './tracker';
 
-export function activate(context: vscode.ExtensionContext): void {
-	activateTracker(context);
-
-	context.subscriptions.push(
-		vscode.commands.registerCommand('terminalEnhanced.copyLast', copyLast)
-	);
+interface TerminalEnhancedConfig {
+	historySize: number;
+	maxOutputLength: number;
 }
 
-function copyLast(): void {
-	const terminal = vscode.window.activeTerminal;
-	if (!terminal) {
-		void vscode.window.showWarningMessage('No active terminal.');
-		return;
-	}
+let store: HistoryStore | undefined;
 
-	const captured = getCaptured(terminal);
-	if (!captured) {
-		void vscode.window.showWarningMessage(
-			'No command captured for the active terminal. ' +
-			'Make sure shell integration is enabled and a command has been run.'
+function getConfig(): TerminalEnhancedConfig {
+	const cfg = vscode.workspace.getConfiguration('terminalEnhanced');
+	return {
+		historySize: cfg.get<number>('historySize', 10),
+		// 1 MB per command: long logs are kept in full, up to the retention limit.
+		maxOutputLength: cfg.get<number>('maxOutputLength', 1_000_000),
+	};
+}
+
+export function activate(context: vscode.ExtensionContext): void {
+	const initial = getConfig();
+	const dbPath = vscode.Uri.joinPath(context.globalStorageUri, 'history.sqlite').fsPath;
+
+	let history: HistoryStore;
+	try {
+		history = new HistoryStore(dbPath, initial.historySize);
+	} catch (error) {
+		void vscode.window.showErrorMessage(
+			`Hacker Terminal Enhanced: could not open the history database. ${String(error)}`
 		);
 		return;
 	}
+	store = history;
 
-	const text = formatExecution(captured);
-	void vscode.env.clipboard.writeText(text).then(() => {
-		void vscode.window.setStatusBarMessage(
-			'$(check) Hacker Terminal Enhanced: copied last command + output',
-			3000
-		);
-	});
+	context.subscriptions.push(
+		history,
+		vscode.commands.registerCommand('terminalEnhanced.showHistory', () =>
+			showHistory(context, history)
+		),
+		vscode.commands.registerCommand('terminalEnhanced.hideHistory', () => hideHistory()),
+		vscode.commands.registerCommand('terminalEnhanced.clearHistory', () => clearHistory(history)),
+		vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('terminalEnhanced.historySize')) {
+				history.setLimit(getConfig().historySize);
+			}
+		})
+	);
+
+	activateTracker(context, history, () => getConfig().maxOutputLength);
 }
 
 export function deactivate(): void {
-	// nothing to clean up
+	store?.dispose();
+	store = undefined;
 }

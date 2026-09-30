@@ -2,14 +2,19 @@
 
 ## Summary
 
-After VS Code is force-quit (or crashes) and session persistence restores the
-previously open terminals, **Hacker Terminal Enhanced cannot copy the last command that
-ran before the restart**. The next command run in the restored terminal is
-captured normally.
+VS Code exposes **no** stable or proposed API that lets an extension read a
+restored terminal's command history or output. The data exists inside VS Code
+(it is replayed into the shell-integration capability) but never crosses the
+extension-host boundary.
 
-This is a hard limitation of the VS Code extension API, not a bug in this
-extension. There is **no stable or proposed API** that exposes a restored
-terminal's command history or output to extensions.
+**The impact on this extension is now largely mitigated.** Hacker Terminal
+Enhanced keeps its own **global, persisted** command history in SQLite
+(`globalStorage`), independent of VS Code's terminal buffers. After a force-quit
+or crash, the popup still lists the last commands that ran before the restart —
+they come from the extension's own store, not from the restored terminal.
+
+What remains impossible is reading a restored terminal's own scrollback/command
+data directly. The rest of this document explains why, so the boundary is clear.
 
 ---
 
@@ -119,39 +124,39 @@ on the extension-host side
 |---|---|---|
 | Read restored terminal directly via API | **Impossible** | No stable/proposed API exposes the internal capability data. |
 | Eagerly activate (`onStartupFinished`) + listen for replayed events | **Unreliable** | Events fire during synchronous deserialize before listeners attach; `wasReplayed` is suppressed internally. |
-| Persist our own per-terminal command log (`globalState`) | **Partial workaround** | Records forward; on reload, read our log. Won't recover the very first post-crash command, and matching a restored terminal to its log has no stable id to key on. |
+| Persist our own command log | **Implemented** | A global SQLite history in `globalStorage` (see below); after a restore the popup lists the last commands without reading the terminal. |
 | Ship inside VS Code core / propose a new API | **Not applicable** | Would require exposing `TerminalShellIntegration.lastCommand`/`commands` backed by `CommandDetectionCapability.commands`. |
 
-### The persistence workaround (rejected for now)
+### The persistence workaround (implemented)
 
-One could persist each captured command to `globalState`, keyed by `(cwd, terminal name)`.
-On activation, load the log. A restored terminal would be matched when
-shell-integration reports its `cwd`. This covers reloads/restarts where the
-extension was already running, but:
+The extension persists each finished command to `globalStorage`
+(`history.sqlite`, via the built-in `node:sqlite`). Because the history is
+**global** rather than keyed per terminal, there is no fuzzy
+`(cwd, terminal name)` matching problem — the popup simply shows the last
+`terminalEnhanced.historySize` commands from the store, regardless of which
+terminal (or session) produced them. A restored terminal therefore does not need
+to be identified or read: its pre-restart commands are already in the store.
 
-1. **No stable terminal id exists** — the stable `Terminal` API has no stable
-   unique identifier, so `(cwd, name)` is a fuzzy key that can collide or drift.
-2. **The first post-crash command is always lost** — the extension wasn't
-   listening when it ran.
-3. **Adds complexity** for a narrow gain, with fragile matching.
-
-Given the fuzzy-key problem and the incomplete coverage, this extension
-currently documents the limitation rather than ship an unreliable workaround.
+The one thing this does **not** recover is the following edge: a command that ran
+*before the extension ever started* (e.g. the extension was activated after the
+command), or output lost to the shell-integration streaming race (see
+[`how-to-test.md`](how-to-test.md) §deterministic commands). In normal use every
+command run while the extension host is alive is recorded.
 
 ---
 
 ## What this means in practice
 
-| Scenario | Last command captured? |
+| Scenario | In the popup? |
 |---|---|
 | Command runs in a terminal this session | Yes |
-| VS Code reloads window, terminal restored, new command runs | Yes (the new one) |
-| VS Code force-quit, restored terminal, "copy last" immediately | **No** — nothing captured yet |
-| VS Code force-quit, restored terminal, run a new command, then copy | Yes (the new one) |
+| VS Code reloads window, terminal restored | Yes — the pre-reload commands are still in the extension's store |
+| VS Code force-quit, restored terminal, popup opened immediately | Yes — from the persisted store |
+| Command ran before the extension host was ever listening | No (never observed) |
 
-**Workaround for the user:** after a restore, just re-run the command (or any
-no-op like `true`) in the terminal and the extension will capture the next one
-normally.
+There is no longer a "run a no-op to prime the extension" step: the extension
+records commands forward from `onStartupFinished` and keeps them in its own
+database.
 
 ---
 

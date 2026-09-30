@@ -4,16 +4,27 @@
  *
  * Division of labour (meta repo `how-to-test-all.md` §3):
  *   REST  → arrange + act  (create a terminal, run a command, invoke the
- *                            extension command, poll host readiness)
- *   CDP   → assert only     (status-bar text, clipboard contents, notifications)
+ *                            extension commands, poll host readiness)
+ *   CDP   → assert only     (webview popup DOM, status-bar text, clipboard)
+ *
+ * The history popup is a webview panel. Under code-server a webview is NOT a
+ * separate CDP target — it is nested in same-origin iframes inside the
+ * workbench page, so a two-level Playwright `frameLocator` reaches it:
+ *
+ *   workbench page → iframe[src*=extensionId]  (webview bootstrap)
+ *                  → <iframe>                   (the extension's own document)
  */
-import { chromium, expect, type Browser, type Page } from '@playwright/test';
+import { chromium, expect, type Browser, type FrameLocator, type Locator, type Page } from '@playwright/test';
 import { restAvailable, restCmd, restEval, restRaw } from './rest';
 
 export const CDP_PORT = process.env.CDP_PORT || '9024';
 export const CDP_ENDPOINT = `http://127.0.0.1:${CDP_PORT}`;
 export const CODE_SERVER_URL =
 	process.env.CODE_SERVER_URL || 'https://localhost:9620/?folder=/home/lamnt45/git/vscode-hacker-meta';
+
+/** The extension under test (override for a dev host / a fork). */
+export const EXT_ID = process.env.HACKER_TERMINAL_EXT_ID || 'lamnguyenx.hacker-terminal-enhanced';
+export const EXT_FRAME_SEL = `iframe[src*="extensionId=${EXT_ID}"]`;
 
 export interface Workbench {
 	browser: Browser;
@@ -49,10 +60,37 @@ export async function waitForRest(timeoutMs = 30000): Promise<void> {
 		.toBe(true);
 }
 
-/** Allow the test to read back the real browser clipboard. */
-export async function grantClipboard(page: Page): Promise<void> {
-	const origin = new URL(page.url()).origin;
-	await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+type ClipboardHook = { __hteClipboard?: string[] };
+
+/**
+ * Hook the renderer's `navigator.clipboard.writeText` so the test can capture
+ * the payload the extension writes.
+ *
+ * The browser runs on another machine and cannot be OS-focused from the test
+ * runner, so both `writeText` and `readText` reject with "Document is not
+ * focused". The extension host's `vscode.env.clipboard.writeText` is delivered
+ * through the renderer's `navigator.clipboard` (verified), so replacing it
+ * records the exact copied text without needing focus. Resetting the buffer
+ * also gives a clean sentinel per test.
+ */
+export async function installClipboardSpy(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const w = window as unknown as ClipboardHook;
+		w.__hteClipboard = [];
+		const clip = navigator.clipboard as unknown as { writeText: (text: string) => Promise<void> };
+		clip.writeText = async (text: string) => {
+			w.__hteClipboard!.push(text);
+		};
+	});
+}
+
+/** The most recent text the extension copied (requires {@link installClipboardSpy}). */
+export function readClipboard(page: Page): Promise<string> {
+	return page.evaluate(() => {
+		const w = window as unknown as ClipboardHook;
+		const buffer = w.__hteClipboard ?? [];
+		return buffer.length > 0 ? buffer[buffer.length - 1] : '';
+	});
 }
 
 /** Open a fresh terminal and wait until shell integration is live for it. */
@@ -72,8 +110,8 @@ export async function openTerminal(page: Page): Promise<void> {
 }
 
 /** Type a command into the active terminal. */
-export async function runInTerminal(command: string): Promise<void> {
-	await restRaw('custom.runInTerminal', [command]);
+export function runInTerminal(command: string): Promise<any> {
+	return restRaw('custom.runInTerminal', [command]);
 }
 
 /**
@@ -100,38 +138,46 @@ export async function waitForTerminalOutput(
 		.toBe(true);
 }
 
-/** Invoke the extension command the same way a user would (via the workbench). */
-export async function copyLastCommand(): Promise<void> {
-	await restRaw('terminalEnhanced.copyLast', []);
+// ---------------------------------------------------------------------------
+// History popup
+// ---------------------------------------------------------------------------
+
+/** Invoke the popup command the same way a user would (via the workbench). */
+export function showHistory(): Promise<any> {
+	return restRaw('terminalEnhanced.showHistory', []);
 }
 
-/**
- * Invoke the copy command until the clipboard matches `matches`, or time out.
- *
- * The terminal DOM shows a command's output as soon as the pty writes it, but
- * the extension only stores the capture once shell integration reports the
- * execution ended and `execution.read()` drains — a few ms later. Re-invoking
- * copy is cheaper and more reliable than guessing a fixed settle delay.
- */
-export async function copyUntilClipboard(
-	page: Page,
-	matches: (clip: string) => boolean,
-	timeoutMs = 10000
-): Promise<string> {
-	const deadline = Date.now() + timeoutMs;
-	let last = '';
-	while (Date.now() < deadline) {
-		await copyLastCommand();
-		await page.waitForTimeout(300);
-		last = await readClipboard(page);
-		if (matches(last)) return last;
-	}
-	return last;
+/** Close the popup if open. */
+export function hideHistory(): Promise<any> {
+	return restRaw('terminalEnhanced.hideHistory', []);
 }
 
-/** Read the real browser clipboard (requires {@link grantClipboard}). */
-export function readClipboard(page: Page): Promise<string> {
-	return page.evaluate(() => navigator.clipboard.readText());
+/** Delete every retained command. */
+export function clearHistory(): Promise<any> {
+	return restRaw('terminalEnhanced.clearHistory', []);
+}
+
+/** The extension document inside the code-server webview (two frame levels). */
+export function historyUi(page: Page): FrameLocator {
+	return page.frameLocator(EXT_FRAME_SEL).frameLocator('iframe');
+}
+
+/** Open the popup and wait for its webview document to render. */
+export async function openHistory(page: Page): Promise<FrameLocator> {
+	await showHistory();
+	const ui = historyUi(page);
+	await ui.locator('.popup').waitFor({ state: 'visible', timeout: 20000 });
+	return ui;
+}
+
+/** Every command row in the popup's left pane, newest first. */
+export function historyRows(ui: FrameLocator): Locator {
+	return ui.locator('.history-row');
+}
+
+/** Read the popup's right-pane full-command preview. */
+export function previewCommand(ui: FrameLocator): Locator {
+	return ui.locator('#preview-command');
 }
 
 /** Remove leftover notification toasts. */
