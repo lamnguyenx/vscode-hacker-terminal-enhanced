@@ -157,6 +157,37 @@ export function clearHistory(): Promise<any> {
 	return restRaw('terminalEnhanced.clearHistory', []);
 }
 
+/** Set `terminalEnhanced.historyDisplay` (Global). */
+export function setDisplayMode(
+	mode: 'editor' | 'panel' | 'sidebar' | 'secondarySidebar' | 'window'
+): Promise<any> {
+	return restEval(
+		`vscode.workspace.getConfiguration('terminalEnhanced')` +
+			`.update('historyDisplay', ${JSON.stringify(mode)}, vscode.ConfigurationTarget.Global).then(() => true)`
+	);
+}
+
+/** Remove the Global `historyDisplay` override (back to the default). */
+export function resetDisplayMode(): Promise<any> {
+	return restEval(
+		`vscode.workspace.getConfiguration('terminalEnhanced')` +
+			`.update('historyDisplay', undefined, vscode.ConfigurationTarget.Global).then(() => true)`
+	);
+}
+
+/** Set `terminalEnhanced.closeOnCopy` (Global). */
+export function setCloseOnCopy(value: boolean): Promise<any> {
+	return restEval(
+		`vscode.workspace.getConfiguration('terminalEnhanced')` +
+			`.update('closeOnCopy', ${value}, vscode.ConfigurationTarget.Global).then(() => true)`
+	);
+}
+
+/** Hide the bottom panel (its tabs, including the docked history view). */
+export function closePanel(): Promise<any> {
+	return restCmd('workbench.action.closePanel').catch(() => undefined);
+}
+
 /** The extension document inside the code-server webview (two frame levels). */
 export function historyUi(page: Page): FrameLocator {
 	return page.frameLocator(EXT_FRAME_SEL).frameLocator('iframe');
@@ -178,6 +209,25 @@ export function historyRows(ui: FrameLocator): Locator {
 /** Read the popup's right-pane full-command preview. */
 export function previewCommand(ui: FrameLocator): Locator {
 	return ui.locator('#preview-command');
+}
+
+/** Poll the clipboard hook until it matches (the copy is asynchronous). */
+export async function waitForClipboard(
+	page: Page,
+	matches: (clip: string) => boolean,
+	timeoutMs = 10000
+): Promise<string> {
+	let last = '';
+	await expect
+		.poll(
+			async () => {
+				last = await readClipboard(page);
+				return matches(last);
+			},
+			{ timeout: timeoutMs, intervals: [200, 300, 500] }
+		)
+		.toBe(true);
+	return last;
 }
 
 /** Remove leftover notification toasts. */

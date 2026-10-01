@@ -1,101 +1,67 @@
 import * as fs from 'node:fs';
 import * as vscode from 'vscode';
-import { formatExecution } from './format';
+import { copyExecution } from './copy';
 import { toDisplayItem } from './history';
 import { HistoryStore } from './store';
 
-const VIEW_TYPE = 'terminalEnhanced.history';
-
-let panel: vscode.WebviewPanel | undefined;
-
 /**
- * The command-history popup: a compact, popup-like webview panel in the editor
- * area. `↑/↓` browse, `Enter` copies the selected command's full LLM block,
- * `Esc` closes; losing focus dismisses it like a popup.
+ * Shared webview plumbing for the webview presentations of the history (the
+ * editor-area panel, the separate window, and the three docked views). All
+ * render the same `media/popup.*` assets and speak the same
+ * `{ready|copy|close}` protocol.
  */
-export function showHistory(context: vscode.ExtensionContext, store: HistoryStore): void {
-	if (panel) {
-		panel.reveal(vscode.ViewColumn.Active);
-		postItems(store);
-		return;
-	}
+export interface HistoryWebviewHost {
+	readonly webview: vscode.Webview;
+	/** Close/hide the host on an explicit `close` message. */
+	close(): void;
+	/** Whether a successful copy should also close the host. */
+	shouldCloseOnCopy(): boolean;
+}
 
-	const created = vscode.window.createWebviewPanel(
-		VIEW_TYPE,
-		'Hacker Terminal History',
-		vscode.ViewColumn.Active,
-		{
-			enableScripts: true,
-			retainContextWhenHidden: false,
-			localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')],
-		}
-	);
-	panel = created;
-
-	created.webview.html = buildHtml(context, created.webview);
-
-	// Only dismiss once the UI has actually rendered, so a transient inactive
-	// state during panel creation cannot close the popup immediately.
-	let armed = false;
-	const subscriptions: vscode.Disposable[] = [];
-	subscriptions.push(
-		created.webview.onDidReceiveMessage(message => {
-			if ((message as { type?: unknown } | undefined)?.type === 'ready') {
-				armed = true;
-			}
-			void handleMessage(message, store);
+/** Register the message protocol and store-refresh wiring for a webview host. */
+export function wireHistoryWebview(
+	host: HistoryWebviewHost,
+	store: HistoryStore
+): vscode.Disposable[] {
+	return [
+		host.webview.onDidReceiveMessage(message => {
+			void handleMessage(host, store, message);
 		}),
-		store.onDidChange(() => postItems(store)),
-		// Dismiss like a popup when the panel is no longer the active editor.
-		created.onDidChangeViewState(event => {
-			if (!event.webviewPanel.active && armed) {
-				event.webviewPanel.dispose();
-			}
-		})
-	);
-
-	created.onDidDispose(() => {
-		for (const disposable of subscriptions) {
-			disposable.dispose();
-		}
-		panel = undefined;
-	});
+		store.onDidChange(() => postHistoryItems(host.webview, store))
+	];
 }
 
-/** Close the popup if it is open. */
-export function hideHistory(): void {
-	panel?.dispose();
+/** Push the current history list to a webview (no output payloads). */
+export function postHistoryItems(webview: vscode.Webview, store: HistoryStore): void {
+	const items = store.list().map(toDisplayItem);
+	try {
+		void webview.postMessage({ type: 'items', items });
+	} catch {
+		// the webview may have just been disposed
+	}
 }
 
-/** Remove every retained command; refreshes an open popup. */
-export function clearHistory(store: HistoryStore): void {
-	store.clear();
-}
-
-async function handleMessage(message: unknown, store: HistoryStore): Promise<void> {
+async function handleMessage(
+	host: HistoryWebviewHost,
+	store: HistoryStore,
+	message: unknown
+): Promise<void> {
 	const type = (message as { type?: unknown } | undefined)?.type;
 	switch (type) {
 		case 'ready':
-			postItems(store);
+			postHistoryItems(host.webview, store);
 			return;
 		case 'close':
-			panel?.dispose();
+			host.close();
 			return;
 		case 'copy': {
 			const id = Number((message as { id?: unknown }).id);
 			if (!Number.isFinite(id)) {
 				return;
 			}
-			const entry = store.get(id);
-			if (!entry) {
-				return;
+			if ((await copyExecution(store, id)) && host.shouldCloseOnCopy()) {
+				host.close();
 			}
-			await vscode.env.clipboard.writeText(formatExecution(entry));
-			void vscode.window.setStatusBarMessage(
-				'$(check) Hacker Terminal Enhanced: copied command + output',
-				3000
-			);
-			panel?.dispose();
 			return;
 		}
 		default:
@@ -103,22 +69,11 @@ async function handleMessage(message: unknown, store: HistoryStore): Promise<voi
 	}
 }
 
-function postItems(store: HistoryStore): void {
-	if (!panel) {
-		return;
-	}
-	const items = store.list().map(toDisplayItem);
-	try {
-		void panel.webview.postMessage({ type: 'items', items });
-	} catch {
-		// panel may have just been disposed
-	}
-}
-
-function buildHtml(context: vscode.ExtensionContext, webview: vscode.Webview): string {
+/** The webview document shared by all webview presentations. */
+export function buildHistoryHtml(extensionUri: vscode.Uri, webview: vscode.Webview): string {
 	const nonce = getNonce();
 	const cspSource = webview.cspSource;
-	const mediaRoot = vscode.Uri.joinPath(context.extensionUri, 'media');
+	const mediaRoot = vscode.Uri.joinPath(extensionUri, 'media');
 	const cssUri = cacheBust(webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'popup.css')));
 	const jsUri = cacheBust(webview.asWebviewUri(vscode.Uri.joinPath(mediaRoot, 'popup.js')));
 

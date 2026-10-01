@@ -1,8 +1,9 @@
 import { test, expect, type Page } from '@playwright/test';
-import { restCmd } from './rest';
+import { restCmd, restEval } from './rest';
 import {
 	clearHistory,
 	clearNotifications,
+	closePanel,
 	connectWorkbench,
 	EXT_FRAME_SEL,
 	historyRows,
@@ -13,7 +14,11 @@ import {
 	previewCommand,
 	readClipboard,
 	reloadWorkbench,
+	resetDisplayMode,
 	runInTerminal,
+	setCloseOnCopy,
+	setDisplayMode,
+	waitForClipboard,
 	waitForTerminalOutput,
 } from './workbench';
 
@@ -35,13 +40,45 @@ import {
 const STATUS_TEXT = 'Hacker Terminal Enhanced: copied command + output';
 const SUMMARY = 'TERMINAL EXECUTION: SUMMARY';
 
-/** Reset the clipboard oracle so a stale value cannot satisfy an assertion. */
-async function prepare(page: Page): Promise<void> {
+type DisplayMode = 'editor' | 'panel' | 'sidebar' | 'secondarySidebar' | 'window';
+
+let originalDisplay: string | null = null;
+let originalCloseOnCopy: boolean | null = null;
+
+test.beforeAll(async () => {
+	originalDisplay = await restEval<string | null>(
+		`vscode.workspace.getConfiguration('terminalEnhanced').inspect('historyDisplay')?.globalValue ?? null`
+	);
+	originalCloseOnCopy = await restEval<boolean | null>(
+		`vscode.workspace.getConfiguration('terminalEnhanced').inspect('closeOnCopy')?.globalValue ?? null`
+	);
+});
+
+test.afterAll(async () => {
+	await (originalDisplay === null
+		? resetDisplayMode()
+		: setDisplayMode(originalDisplay as DisplayMode)
+	).catch(() => undefined);
+	if (originalCloseOnCopy === null) {
+		await restEval(
+			`vscode.workspace.getConfiguration('terminalEnhanced')` +
+				`.update('closeOnCopy', undefined, vscode.ConfigurationTarget.Global)`
+		).catch(() => undefined);
+	} else {
+		await setCloseOnCopy(originalCloseOnCopy).catch(() => undefined);
+	}
+});
+
+/** Reset the clipboard oracle and pin the presentation for this test. */
+async function prepare(page: Page, mode: DisplayMode = 'editor'): Promise<void> {
 	await installClipboardSpy(page);
+	await setDisplayMode(mode);
+	await setCloseOnCopy(false);
 }
 
 test.afterEach(async () => {
 	await hideHistory().catch(() => undefined);
+	await closePanel();
 	await clearHistory().catch(() => undefined);
 	await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
 	await clearNotifications();
@@ -225,6 +262,101 @@ test.describe('Hacker Terminal Enhanced', () => {
 			await clearHistory();
 			await expect(historyRows(ui)).toHaveCount(0, { timeout: 10000 });
 			await expect(ui.locator('#history-empty')).toBeVisible();
+		} finally {
+			await browser.close();
+		}
+	});
+
+	test('sidebar mode docks the view in the primary sidebar', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page, 'sidebar');
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal("bash -c 'sleep 0.3 && echo PW-SIDE-$RANDOM'");
+			await waitForTerminalOutput(page, /PW-SIDE-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 15000 });
+			await expect(previewCommand(ui)).toHaveText(
+				"bash -c 'sleep 0.3 && echo PW-SIDE-$RANDOM'"
+			);
+			// Actually docked in the primary sidebar.
+			await expect(page.locator('.part.sidebar .composite.title').first()).toContainText(
+				'Hacker Terminal'
+			);
+		} finally {
+			await browser.close();
+		}
+	});
+
+	test('panel mode docks the two-pane view in the bottom panel', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page, 'panel');
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal("bash -c 'sleep 0.3 && echo PW-PANEL-$RANDOM'");
+			await waitForTerminalOutput(page, /PW-PANEL-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			await expect(previewCommand(ui)).toHaveText(
+				"bash -c 'sleep 0.3 && echo PW-PANEL-$RANDOM'"
+			);
+			// Actually docked in the bottom panel.
+			await expect(page.locator('.part.panel .composite.title').first()).toContainText(
+				'Hacker Terminal'
+			);
+		} finally {
+			await browser.close();
+		}
+	});
+
+	test('secondary sidebar mode docks the view in the auxiliary bar', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page, 'secondarySidebar');
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal("bash -c 'sleep 0.3 && echo PW-AUX-$RANDOM'");
+			await waitForTerminalOutput(page, /PW-AUX-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 15000 });
+			await expect(previewCommand(ui)).toHaveText(
+				"bash -c 'sleep 0.3 && echo PW-AUX-$RANDOM'"
+			);
+			// Actually docked in the secondary sidebar.
+			await expect(page.locator('.part.auxiliarybar .composite.title').first()).toContainText(
+				'Hacker Terminal'
+			);
+		} finally {
+			await browser.close();
+		}
+	});
+
+	test('closeOnCopy closes the editor panel after copying', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page, 'editor');
+			await setCloseOnCopy(true);
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal("bash -c 'sleep 0.3 && echo PW-CLOSE-$RANDOM'");
+			await waitForTerminalOutput(page, /PW-CLOSE-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+
+			await ui.locator('body').press('Enter');
+			await waitForClipboard(page, c => c.includes('PW-CLOSE-$RANDOM'));
+			// The panel dismissed itself on copy.
+			await expect(page.locator(EXT_FRAME_SEL)).toHaveCount(0, { timeout: 10000 });
 		} finally {
 			await browser.close();
 		}

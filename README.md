@@ -1,23 +1,11 @@
 # Hacker Terminal Enhanced
 
 Browse and copy recent terminal commands and their output in an LLM-friendly
-format — a popup history of your last commands, with a one-keystroke copy of the
-selected command's full result.
+format. A two-pane history view — command list on the left, the full command on
+the right — that you can place wherever you like: the editor, the panel, either
+sidebar, or a separate window.
 
-The popup shows each command's first line on the left and the full command
-(plus cwd / exit code / start time) on the right:
-
-```text
-COMMAND                       FULL COMMAND
-▸ git status --short          git status --short && uname -a
-  uname -a                    cwd:   /home/user/project
-  docker ps                   exit:  0
-                              start: 2026-09-30 17:29:23
-
-↑↓ browse · ⏎ copy full block · Esc close
-```
-
-Pressing `Enter` copies the whole execution block:
+Pressing `Enter` copies the whole execution block for the selected command:
 
 ```text
 # ----------------- TERMINAL EXECUTION: SUMMARY -----------------
@@ -45,43 +33,47 @@ nothing to commit, working tree clean
 2. Press **`Ctrl+Alt+Shift+C`** (`Ctrl+Cmd+Shift+C` on macOS) while the terminal
    is focused, or run **Hacker Terminal Enhanced: Show Command History** from
    the Command Palette.
-3. The popup opens with your recent commands.
+3. The history view opens (see [`historyDisplay`](#settings)).
    - `↑` / `↓` (or click) move the selection — the right pane follows.
    - `Enter` copies the selected command's full block to the clipboard.
-   - `Esc` closes; clicking away also closes it.
+   - `Esc` closes it.
 4. Paste anywhere.
 
 ## History
 
 - **Global** across terminals and **persisted to disk** (SQLite under the
   extension's `globalStorage`), so it survives window reloads and restarts.
-- Retains the most recent **`terminalEnhanced.historySize`** commands
-  (default **10**).
-- Captures up to **`terminalEnhanced.maxOutputLength`** characters of output per
-  command (default **1,000,000** ≈ 1 MB).
+- Retains the most recent **`historySize`** commands (default **10**).
+- Captures up to **`maxOutputLength`** characters of output per command
+  (default **1,000,000** ≈ 1 MB).
 
 ### Settings
 
 | Setting | Default | Description |
 | --- | --- | --- |
+| `terminalEnhanced.historyDisplay` | `editor` | Where the history is shown: `editor` (tab), `panel` (bottom), `sidebar` (primary sidebar / Activity Bar), `secondarySidebar`, or `window` (separate OS window). |
+| `terminalEnhanced.closeOnCopy` | `false` | Close the view/panel immediately after a command is copied. |
 | `terminalEnhanced.historySize` | `10` | How many recent commands to keep. |
 | `terminalEnhanced.maxOutputLength` | `1000000` | Max characters of output captured per command. |
+
+The docked modes use a single view that is moved to the configured container;
+only that container is shown, so the others stay out of the way.
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
-| `terminalEnhanced.showHistory` | Open the history popup (bound to `Ctrl+Alt+Shift+C` / `Ctrl+Cmd+Shift+C`, `when: terminalFocus`). |
+| `terminalEnhanced.showHistory` | Open the history (bound to `Ctrl+Alt+Shift+C` / `Ctrl+Cmd+Shift+C`, `when: terminalFocus`). |
 | `terminalEnhanced.clearHistory` | Delete every retained command. |
-| `terminalEnhanced.hideHistory` | Close the popup (hidden from the palette). |
+| `terminalEnhanced.hideHistory` | Close the editor/window panel (hidden from the palette). |
 
 ## Limitations
 
 - Requires [shell integration](https://code.visualstudio.com/docs/terminal/shell-integration)
   to be enabled in the terminal (default for bash, zsh, fish, pwsh).
-- The popup is an **editor-area webview panel** — VS Code's stable API has no
-  floating overlay webview. In a narrow editor column the two panes stack
-  vertically; widen the column to get the side-by-side layout.
+- **`window` mode needs a desktop build.** Under code-server / a browser,
+  VS Code cannot move an editor into its own OS window, so it falls back to the
+  editor area.
 - **Very fast commands may have no captured output.** VS Code's shell-integration
   data stream drops output that arrives before the consumer has registered
   (`ShellExecutionDataStream`), which can affect instant shell builtins
@@ -96,7 +88,7 @@ nothing to commit, working tree clean
   VS Code.
 - **Restored terminals:** VS Code cannot expose a restored terminal's buffer to
   extensions, but the extension's own persisted history means your last
-  commands are still available in the popup after a reload or crash. See
+  commands are still available after a reload or crash. See
   [`docs/important/restored-terminal-limitation.md`](docs/important/restored-terminal-limitation.md).
 
 ## Development
@@ -113,10 +105,15 @@ Source layout:
 | `src/history.ts` | Pure display helpers (first line, webview item mapping). |
 | `src/store.ts` | `node:sqlite` history store (path-in, no `vscode`). |
 | `src/tracker.ts` | Shell-execution tracking; writes captures to the store. |
-| `src/extension.ts` | Activation, settings, command registration. |
-| `src/popup.ts` | Webview panel host (CSP, messages, copy, auto-dismiss). |
+| `src/settings.ts` | `historyDisplay` / `closeOnCopy` readers. |
+| `src/extension.ts` | Activation, command + view registration. |
+| `src/display.ts` | Routes `showHistory` to the configured presentation. |
+| `src/editorPanel.ts` | Editor-area / separate-window webview panel. |
+| `src/panelView.ts` | The docked view + `vscode.moveViews` placement. |
+| `src/copy.ts` | Copy + status-bar echo. |
+| `src/historyWebview.ts` | Shared webview HTML + message protocol. |
 | `src/webview/popup.ts` | Webview UI (bundled to `media/popup.js`). |
-| `media/popup.css` | Popup styling. |
+| `media/popup.css` | The two-pane styling. |
 
 ## Testing
 

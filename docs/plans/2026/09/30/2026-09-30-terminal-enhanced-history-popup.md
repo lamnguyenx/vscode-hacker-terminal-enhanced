@@ -23,7 +23,7 @@ and persisted across reloads.
 
 | Question | Choice |
 | --- | --- |
-| Popup widget | **Custom webview panel** (two-pane), not QuickPick |
+| Popup widget | **Custom two-pane webview**, not QuickPick |
 | Copied content | The **full LLM block** for the selected entry |
 | History scope | **Global** across terminals + **persisted** across reloads |
 | Trigger | Shortcut opens the popup (replaces the old instant-copy) |
@@ -37,10 +37,11 @@ and persisted across reloads.
 ### The "popup" reality
 
 VS Code's stable API has no floating overlay webview — only `WebviewPanel`
-(editor area) and `WebviewView` (docked). The user chose a webview panel styled
-as a popup card with **focus-loss auto-dismiss** (`onDidChangeViewState`), and
-the layout is **responsive**: side-by-side above 560 px, stacked below (the
-reference workbench often has several editor groups).
+(editor area / separate window) and `WebviewView` (docked in a container). The
+final design exposes `terminalEnhanced.historyDisplay` with `editor` (default),
+`panel`, `sidebar`, `secondarySidebar`, and `window`, plus a separate
+`terminalEnhanced.closeOnCopy` (default `false`) for dismissal. See
+[Presentation rework](#presentation-rework-2026-10-01) below.
 
 ## Design
 
@@ -130,3 +131,46 @@ highlight, and the responsive stack in a narrow column.
 - **One command per test line** avoids shell-integration sub-executions.
 - **Pure modules stay pure**: `history.ts`/`store.ts` have no `vscode` import, so
   they run under bun with a temp SQLite file.
+
+## Presentation rework (2026-10-01)
+
+Follow-up after the first cut shipped an editor-area panel plus a QuickPick
+option. The user rejected QuickPick and asked for a single setting choosing
+*where* the history lives — editor / panel / primary sidebar / secondary sidebar
+/ separate window — with auto-dismiss-after-copy optional and **off** by
+default.
+
+Final shape:
+
+- `terminalEnhanced.historyDisplay`: `editor` (default), `panel`, `sidebar`,
+  `secondarySidebar`, `window`.
+- `terminalEnhanced.closeOnCopy`: boolean, default `false`.
+- QuickPick removed (`src/quickPick.ts` deleted).
+- One docked webview view (`terminalEnhanced.historyView`), contributed to a
+  panel container and **moved** to the requested container with the internal
+  `vscode.moveViews` command, then focused. A `setContext` key
+  (`terminalEnhanced.display`) hides it in `editor`/`window` modes.
+- `window`: create the editor panel, then
+  `workbench.action.moveEditorToNewWindow`.
+
+Traps (each cost a debug cycle):
+
+1. **`config.*` in a view `when` is not reactive.** The view stayed visible
+   after the setting changed; switched to a `setContext` key.
+2. **Container ids are prefixed.** `viewsContainers` id `terminalEnhanced-panel`
+   registers as `workbench.view.extension.terminalEnhanced-panel`; `moveViews`
+   with the bare id silently no-ops.
+3. **Container ids cannot contain dots** (`^[A-Za-z0-9_-]+$`). The first cut
+   used `terminalEnhanced.panel`, so all three containers were rejected and the
+   view silently fell back to a default container.
+4. **The secondary-sidebar location key is `secondarySidebar`**, not
+   `auxiliarybar`.
+5. **`window` mode is a no-op under code-server** (a browser tab cannot open an
+   OS window); it falls back to the editor area. Desktop-only.
+
+Tests grew to 12 (placement assertions for panel/sidebar/auxiliary and a
+`closeOnCopy` case). `window` mode is manual.
+
+CDP checks used `chrome-devtools-9022` (bridged to the live browser on 9024);
+container placement was confirmed via `.part.{panel,sidebar,auxiliarybar}`
+composite titles.

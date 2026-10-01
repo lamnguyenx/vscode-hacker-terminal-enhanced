@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { clearHistory, hideHistory, showHistory } from './popup';
+import { hideHistory, showHistory } from './display';
+import { HISTORY_VIEW_ID, HistoryViewProvider, syncDisplayContext } from './panelView';
 import { HistoryStore } from './store';
 import { activateTracker } from './tracker';
 
@@ -34,14 +35,22 @@ export function activate(context: vscode.ExtensionContext): void {
 	}
 	store = history;
 
+	const viewProvider = new HistoryViewProvider(context.extensionUri, history);
+	void syncDisplayContext();
+
 	context.subscriptions.push(
 		history,
+		viewProvider,
+		vscode.window.registerWebviewViewProvider(HISTORY_VIEW_ID, viewProvider),
 		vscode.commands.registerCommand('terminalEnhanced.showHistory', () =>
-			showHistory(context, history)
+			showHistory(context, history, viewProvider)
 		),
 		vscode.commands.registerCommand('terminalEnhanced.hideHistory', () => hideHistory()),
-		vscode.commands.registerCommand('terminalEnhanced.clearHistory', () => clearHistory(history)),
+		vscode.commands.registerCommand('terminalEnhanced.clearHistory', () => history.clear()),
 		vscode.workspace.onDidChangeConfiguration(event => {
+			if (event.affectsConfiguration('terminalEnhanced.historyDisplay')) {
+				void syncDisplayContext();
+			}
 			if (event.affectsConfiguration('terminalEnhanced.historySize')) {
 				history.setLimit(getConfig().historySize);
 			}

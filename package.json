@@ -2,7 +2,7 @@
 	"name": "hacker-terminal-enhanced",
 	"displayName": "Hacker Terminal Enhanced",
 	"description": "Browse and copy recent terminal commands and their output in an LLM-friendly format.",
-	"version": "2026.9.4",
+	"version": "2026.9.9",
 	"publisher": "lamnguyenx",
 	"author": "lamnguyenx <lamfm95@gmail.com>",
 	"license": "MIT",
@@ -19,6 +19,7 @@
 	],
 	"activationEvents": [
 		"onStartupFinished",
+		"onView:terminalEnhanced.historyView",
 		"onCommand:terminalEnhanced.showHistory"
 	],
 	"main": "./out/extension.js",
@@ -53,6 +54,30 @@
 		"configuration": {
 			"title": "Hacker Terminal Enhanced",
 			"properties": {
+				"terminalEnhanced.historyDisplay": {
+					"type": "string",
+					"enum": [
+						"editor",
+						"panel",
+						"sidebar",
+						"secondarySidebar",
+						"window"
+					],
+					"default": "editor",
+					"enumDescriptions": [
+						"An editor tab (persistent).",
+						"The bottom panel, next to the terminal.",
+						"The primary sidebar (Activity Bar).",
+						"The secondary sidebar.",
+						"A separate OS window."
+					],
+					"description": "Where the command history is shown."
+				},
+				"terminalEnhanced.closeOnCopy": {
+					"type": "boolean",
+					"default": false,
+					"description": "Close the history view or panel immediately after a command is copied."
+				},
 				"terminalEnhanced.historySize": {
 					"type": "number",
 					"default": 10,
@@ -66,6 +91,41 @@
 					"description": "Maximum number of characters of a command's output to capture (per command)."
 				}
 			}
+		},
+		"viewsContainers": {
+			"panel": [
+				{
+					"id": "terminalEnhanced-panel",
+					"title": "Hacker Terminal Enhanced",
+					"icon": "media/history.svg"
+				}
+			],
+			"activitybar": [
+				{
+					"id": "terminalEnhanced-sidebar",
+					"title": "Hacker Terminal Enhanced",
+					"icon": "media/history.svg"
+				}
+			],
+			"secondarySidebar": [
+				{
+					"id": "terminalEnhanced-auxiliary",
+					"title": "Hacker Terminal Enhanced",
+					"icon": "media/history.svg"
+				}
+			]
+		},
+		"views": {
+			"terminalEnhanced-panel": [
+				{
+					"type": "webview",
+					"id": "terminalEnhanced.historyView",
+					"name": "History",
+					"icon": "media/history.svg",
+					"contextualTitle": "Hacker Terminal History",
+					"when": "terminalEnhanced.display == 'panel' || terminalEnhanced.display == 'sidebar' || terminalEnhanced.display == 'secondarySidebar'"
+				}
+			]
 		},
 		"menus": {
 			"commandPalette": [

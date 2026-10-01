@@ -69,17 +69,21 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 
 | Test | What it proves |
 | --- | --- |
-| first command after a fresh window (activation regression) | `page.reload()` forces a cold extension host; the **first** command of the session is tracked and shows in the popup |
+| first command after a fresh window (activation regression) | `page.reload()` forces a cold extension host; the **first** command of the session is tracked |
 | lists recent commands newest-first and previews the full command | left pane order + right pane preview |
-| selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output (and not the other command) |
+| selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output |
 | arrow keys move the selection | `↑`/`↓` keyboard navigation |
 | history survives a window reload | the SQLite store persists across an extension-host restart |
 | Esc closes the popup | keyboard dismissal |
 | shows an empty state when there is no history | in-popup empty state |
 | clearHistory empties an open popup | `terminalEnhanced.clearHistory` + live refresh |
+| sidebar mode docks the view in the primary sidebar | the view is actually moved into the Activity Bar container |
+| panel mode docks the two-pane view in the bottom panel | the view is actually moved into the Panel container |
+| secondary sidebar mode docks the view in the auxiliary bar | the view is actually moved into the Secondary Side Bar container |
+| closeOnCopy closes the editor panel after copying | `terminalEnhanced.closeOnCopy` dismisses the panel |
 
-Observed on the reference stack: `8 passed (1.7m)`. The two reload tests are
-slow (~37s each); the rest are ~2–6s.
+Observed on the reference stack: `12 passed (2.2m)`. The two reload tests are
+slow (~40s each); the rest are ~2–7s.
 
 ## How the suite works
 
@@ -145,6 +149,34 @@ the output arrives after the consumer registers.
   output; `openHistory()` + `expect(...).toHaveCount(...)` retries, and an open
   popup refreshes automatically via the store's `onDidChange`.
 
+### Display modes
+
+`terminalEnhanced.historyDisplay` selects the presentation. The suite pins it
+per test (Global snapshot in `beforeAll`, restore in `afterAll`).
+
+- **`editor` (default)** — a `WebviewPanel` in the editor area. It no longer
+  auto-dismisses; `terminalEnhanced.closeOnCopy` controls closing on copy.
+- **`panel` / `sidebar` / `secondarySidebar`** — one webview **view**, moved to
+  the target container with the internal `vscode.moveViews` command and then
+  focused. It is gated by a `setContext` key (`terminalEnhanced.display`) so it
+  stays hidden in `editor`/`window` modes.
+- **`window`** — the editor panel is moved with
+  `workbench.action.moveEditorToNewWindow`; not covered by the suite (see
+  known limits).
+
+Placement is asserted on the workbench chrome, not just the webview DOM:
+`.part.panel`, `.part.sidebar`, `.part.auxiliarybar` composite titles.
+
+Two traps found building this:
+
+- **View container ids are prefixed.** A `viewsContainers` id `foo` registers
+  as `workbench.view.extension.foo`; `vscode.moveViews` needs the **prefixed**
+  id or it silently no-ops. Container ids must also match `^[A-Za-z0-9_-]+$`
+  (no dots), and the secondary-sidebar location key is `secondarySidebar`.
+- **`when: config.<setting> == …` is not reactive** for view visibility (the
+  view stayed visible after the setting changed). Use a `setContext` key and
+  update it on config change instead.
+
 ### State hygiene
 
 - Each test starts by `terminalEnhanced.clearHistory` so the persisted DB is
@@ -174,6 +206,9 @@ the output arrives after the consumer registers.
   covered** — under CDP the key press did not trigger the command while the
   palette/REST path did. The suite invokes `terminalEnhanced.showHistory` over
   REST. Follow-up.
+- **`window` display mode is not covered.** code-server runs in a browser tab
+  and cannot move an editor to a separate OS window, so the command falls back
+  to the editor area. Verify `window` on a desktop VS Code build by hand.
 - **The ultra-fast-builtin output race is not fixable from the extension** (it
   is inside VS Code's `ShellExecutionDataStream`). Covered by using delayed
   commands; real external commands are unaffected.
