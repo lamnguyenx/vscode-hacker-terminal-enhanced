@@ -5,6 +5,7 @@ import {
 	clearNotifications,
 	closePanel,
 	connectWorkbench,
+	copiedToast,
 	EXT_FRAME_SEL,
 	historyRows,
 	hideHistory,
@@ -12,10 +13,14 @@ import {
 	openHistory,
 	openTerminal,
 	previewCommand,
+	previewOutput,
+	previewOutputSize,
 	readClipboard,
 	reloadWorkbench,
 	resetDisplayMode,
 	runInTerminal,
+	runningBadge,
+	sendSequence,
 	setCloseOnCopy,
 	setDisplayMode,
 	waitForClipboard,
@@ -125,6 +130,10 @@ test.describe('Hacker Terminal Enhanced', () => {
 			await expect(historyRows(ui).nth(1)).toContainText("bash -c 'sleep 0.3 && echo PW-ONE-$RANDOM'");
 			// Right pane previews the selected (newest) command in full.
 			await expect(previewCommand(ui)).toHaveText("bash -c 'sleep 0.3 && echo PW-TWO-$RANDOM'");
+			// ... and its captured output (fetched lazily on selection).
+			await expect(previewOutput(ui)).toContainText(/PW-TWO-\d+/);
+			// The output size is shown next to the "Output" label.
+			await expect(previewOutputSize(ui)).toHaveText(/\d+ (B|KB|MB)/);
 		} finally {
 			await browser.close();
 		}
@@ -148,10 +157,13 @@ test.describe('Hacker Terminal Enhanced', () => {
 			// Click the older command; the preview follows the selection.
 			await historyRows(ui).nth(1).click();
 			await expect(previewCommand(ui)).toHaveText("bash -c 'sleep 0.3 && echo PW-ONE-$RANDOM'");
+			await expect(previewOutput(ui)).toContainText(/PW-ONE-\d+/);
 
 			// Enter is handled by the webview.
 			await ui.locator('body').press('Enter');
 
+			// A prominent in-popup confirmation, not just the status-bar echo.
+			await expect(copiedToast(ui)).toHaveClass(/visible/);
 			await expect(page.locator('.statusbar-item', { hasText: STATUS_TEXT })).toBeVisible({
 				timeout: 10000,
 			});
@@ -185,6 +197,57 @@ test.describe('Hacker Terminal Enhanced', () => {
 			await ui.locator('body').press('ArrowDown');
 			await expect(historyRows(ui).nth(1)).toHaveClass(/selected/);
 			await expect(previewCommand(ui)).toHaveText("bash -c 'sleep 0.3 && echo PW-ONE-$RANDOM'");
+		} finally {
+			await browser.close();
+		}
+	});
+
+	test('shows a running command and streams its output', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page);
+			await clearHistory();
+			await openTerminal(page);
+
+			// Never "ends" until the terminal is killed — like `tail -f`.
+			await runInTerminal("bash -c 'while :; do echo ONGOING-$RANDOM; sleep 0.4; done'");
+			await waitForTerminalOutput(page, /ONGOING-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			// The row is flagged as still running...
+			await expect(runningBadge(ui)).toBeVisible();
+			// ... and its output streams into the right pane as it arrives.
+			await expect(previewOutput(ui)).toContainText(/ONGOING-\d+/, { timeout: 15000 });
+		} finally {
+			await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
+			await browser.close();
+		}
+	});
+
+	test('ignores a line cancelled with Ctrl+C before it runs', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page);
+			await clearHistory();
+			await openTerminal(page);
+
+			// Type `tail -f` but abort it with Ctrl+C: it never executed, so it
+			// must not be recorded (shell integration still emits an execution
+			// whose command line contains the echoed `^C`).
+			await sendSequence('tail -f');
+			await page.waitForTimeout(400);
+			await sendSequence('\u0003');
+			await page.waitForTimeout(600);
+
+			// A real command afterwards is recorded as usual.
+			await runInTerminal("bash -c 'sleep 0.3 && echo REAL-$RANDOM'");
+			await waitForTerminalOutput(page, /REAL-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			await expect(historyRows(ui).nth(0)).toContainText('REAL-$RANDOM');
+			await expect(historyRows(ui).nth(0)).not.toContainText('tail -f');
 		} finally {
 			await browser.close();
 		}

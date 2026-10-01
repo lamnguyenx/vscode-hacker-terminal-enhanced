@@ -115,6 +115,14 @@ export function runInTerminal(command: string): Promise<any> {
 }
 
 /**
+ * Send raw text to the active terminal (no trailing newline). Use this to type
+ * a command without running it, then e.g. abort it with `\u0003` (Ctrl+C).
+ */
+export function sendSequence(text: string): Promise<any> {
+	return restCmd('workbench.action.terminal.sendSequence', { text });
+}
+
+/**
  * Wait until the terminal DOM shows `pattern`.
  *
  * Use a pattern that only the *output* can produce (e.g. `PW-OUT-\d+` for the
@@ -209,6 +217,26 @@ export function historyRows(ui: FrameLocator): Locator {
 /** Read the popup's right-pane full-command preview. */
 export function previewCommand(ui: FrameLocator): Locator {
 	return ui.locator('#preview-command');
+}
+
+/** Read the popup's right-pane output preview. */
+export function previewOutput(ui: FrameLocator): Locator {
+	return ui.locator('#preview-output');
+}
+
+/** Read the popup's right-pane output size label. */
+export function previewOutputSize(ui: FrameLocator): Locator {
+	return ui.locator('#preview-output-size');
+}
+
+/** The popup's "copied" confirmation toast. */
+export function copiedToast(ui: FrameLocator): Locator {
+	return ui.locator('#copied-toast');
+}
+
+/** The "running" badge on a row for an in-flight command. */
+export function runningBadge(ui: FrameLocator): Locator {
+	return ui.locator('.history-running');
 }
 
 /** Poll the clipboard hook until it matches (the copy is asynchronous). */

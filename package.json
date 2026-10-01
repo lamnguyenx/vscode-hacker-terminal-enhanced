@@ -138,6 +138,8 @@
 	},
 	"scripts": {
 		"build:webview": "bun build src/webview/popup.ts --outfile media/popup.js --target browser --format iife",
+		"build:webview:watch": "bun build src/webview/popup.ts --outfile media/popup.js --target browser --format iife --watch",
+		"dev:webview": "bun scripts/dev-webview.ts",
 		"compile": "tsc -p ./ && npm run build:webview",
 		"watch": "tsc -w -p ./",
 		"typecheck:webview": "tsc -p tsconfig.webview.json",

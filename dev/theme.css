@@ -1,0 +1,87 @@
+/*
+ * Browser stand-in for VS Code's theme variables. The popup CSS reads
+ * `--vscode-*`; in the real webview the workbench injects these, but a plain
+ * browser page has none, so we supply Dark+ (and a light override) values.
+ * Not shipped — dev only.
+ */
+
+:root {
+	color-scheme: dark;
+
+	--vscode-font-family: "Segoe UI", "Ubuntu", "Droid Sans", sans-serif;
+	--vscode-font-size: 13px;
+	--vscode-editor-font-family: "Droid Sans Mono", "DejaVu Sans Mono", monospace;
+	--vscode-editor-font-size: 14px;
+
+	--vscode-foreground: #cccccc;
+	--vscode-editor-foreground: #d4d4d4;
+	--vscode-editor-background: #1e1e1e;
+	--vscode-descriptionForeground: #9d9d9d;
+
+	--vscode-widget-border: #454545;
+	--vscode-panel-border: #80808059;
+	--vscode-sideBar-background: #252526;
+	--vscode-editorWidget-background: #252526;
+	--vscode-editorWidget-foreground: #cccccc;
+	--vscode-widget-shadow: rgba(0, 0, 0, 0.36);
+
+	--vscode-list-hoverBackground: #2a2d2e;
+	--vscode-list-activeSelectionBackground: #04395e;
+	--vscode-list-activeSelectionForeground: #ffffff;
+
+	--vscode-errorForeground: #f48771;
+	--vscode-inputValidation-errorBackground: #5a1d1d;
+	--vscode-charts-green: #89d185;
+	--vscode-testing-iconPassed: #73c991;
+
+	--vscode-keybindingLabel-background: #464646;
+	--vscode-keybindingLabel-foreground: #cccccc;
+	--vscode-keybindingLabel-border: #5e5e5e;
+	--vscode-keybindingLabel-bottomBorder: #6b6b6b;
+
+	--vscode-scrollbarSlider-background: #79797966;
+	--vscode-scrollbarSlider-hoverBackground: #646464b3;
+
+	--vscode-notifications-background: #252526;
+	--vscode-notifications-foreground: #cccccc;
+	--vscode-notifications-border: #454545;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--vscode-foreground: #333333;
+		--vscode-editor-foreground: #333333;
+		--vscode-editor-background: #ffffff;
+		--vscode-descriptionForeground: #717171;
+
+		--vscode-widget-border: #e5e5e5;
+		--vscode-panel-border: #80808059;
+		--vscode-sideBar-background: #f3f3f3;
+		--vscode-editorWidget-background: #f3f3f3;
+		--vscode-editorWidget-foreground: #333333;
+		--vscode-widget-shadow: rgba(0, 0, 0, 0.16);
+
+		--vscode-list-hoverBackground: #e8e8e8;
+		--vscode-list-activeSelectionBackground: #0060c0;
+		--vscode-list-activeSelectionForeground: #ffffff;
+
+		--vscode-errorForeground: #a1260d;
+		--vscode-inputValidation-errorBackground: #f2dede;
+		--vscode-charts-green: #2ea043;
+		--vscode-testing-iconPassed: #2ea043;
+
+		--vscode-keybindingLabel-background: #ffffff;
+		--vscode-keybindingLabel-foreground: #333333;
+		--vscode-keybindingLabel-border: #cecece;
+		--vscode-keybindingLabel-bottomBorder: #b8b8b8;
+
+		--vscode-scrollbarSlider-background: #64646466;
+		--vscode-scrollbarSlider-hoverBackground: #646464b3;
+
+		--vscode-notifications-background: #ffffff;
+		--vscode-notifications-foreground: #333333;
+		--vscode-notifications-border: #e5e5e5;
+	}
+}

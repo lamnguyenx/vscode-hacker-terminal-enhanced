@@ -6,7 +6,7 @@ VSIX    := build/$(EXT_ID).vsix
 
 CDP_PORT ?= 9024
 
-.PHONY: build install install-code install-code-server clean vsix test-units typecheck-webview typecheck-tests test-e2e
+.PHONY: build install install-code install-code-server clean vsix test-units typecheck-webview typecheck-tests test-e2e dev-webview dev-webview-docker
 
 build: vsix
 
@@ -33,6 +33,15 @@ typecheck-tests:
 ## Playwright E2E tests (REST Control arranges/acts; CDP browser asserts).
 test-e2e:
 	CDP_PORT=$(CDP_PORT) npx playwright test --config playwright.config.ts
+
+## Serve the history panel in a browser (read-only mirror of the real DB).
+dev-webview:
+	bun scripts/dev-webview.ts
+
+## Same, in the pinned Bun container. The service lives in the meta repo's
+## docker-compose.yml (next to code-server); run from there, or via this target.
+dev-webview-docker:
+	docker compose -f ../../docker-compose.yml up lamnguyenx.hacker-terminal-enhanced-webview-dev
 
 vsix:
 	npm install --no-audit --no-fund

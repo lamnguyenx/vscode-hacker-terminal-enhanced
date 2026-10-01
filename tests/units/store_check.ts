@@ -95,8 +95,42 @@ try {
 		reopened.list().map(item => item.commandLine),
 		['echo 6']
 	);
-	reopened.dispose();
 	console.log('ok - persisted to disk');
+
+	section('running rows stream output, then finish');
+	const runningId = reopened.startRunning({
+		commandLine: 'tail -f app.log',
+		cwd: '/logs',
+		startTime: 2000,
+	});
+	assert.ok(runningId > 0);
+	const started = reopened.get(runningId);
+	assert.ok(started);
+	assert.strictEqual(started.running, true);
+	assert.strictEqual(started.outputLength, 0);
+	reopened.updateOutput(runningId, 'line one\n');
+	reopened.updateOutput(runningId, 'line one\nline two\n');
+	const streaming = reopened.get(runningId);
+	assert.ok(streaming);
+	assert.strictEqual(streaming.running, true);
+	assert.strictEqual(streaming.output, 'line one\nline two\n');
+	assert.strictEqual(streaming.outputLength, 'line one\nline two\n'.length);
+	reopened.finish(runningId, 0, 2100);
+	const finished = reopened.get(runningId);
+	assert.ok(finished);
+	assert.strictEqual(finished.running, false);
+	assert.strictEqual(finished.exitCode, 0);
+	console.log('ok - live output then finalized');
+
+	section('stale running rows are settled on reopen');
+	reopened.startRunning({ commandLine: 'tail -f other.log', startTime: 3000 });
+	reopened.dispose();
+	const recovered = new HistoryStore(dbPath, 3);
+	const settled = recovered.list().find(item => item.commandLine === 'tail -f other.log');
+	assert.ok(settled);
+	assert.strictEqual(settled.running, false);
+	recovered.dispose();
+	console.log('ok - leftovers marked done');
 
 	console.log('\nstore_check: all checks passed');
 } finally {

@@ -22,9 +22,9 @@ body {
 	display: flex;
 	flex-direction: column;
 	height: 100vh;
-	max-width: 1100px;
+	max-width: 1400px;
 	margin: 0 auto;
-	padding: 16px clamp(16px, 6vw, 64px) 0;
+	padding: 14px clamp(8px, 1.5vw, 20px) 0;
 }
 
 .popup-header {
@@ -124,6 +124,21 @@ body {
 	color: var(--vscode-list-activeSelectionForeground);
 }
 
+/* Brief flash on the row whose block was just copied. */
+.history-row.copied {
+	animation: copied-flash 0.8s ease;
+}
+
+@keyframes copied-flash {
+	0% {
+		background: var(--vscode-testing-iconPassed, #2ea043);
+		color: #fff;
+	}
+	100% {
+		background: var(--vscode-list-activeSelectionBackground);
+	}
+}
+
 .history-first-line {
 	flex: 1;
 	overflow: hidden;
@@ -141,14 +156,42 @@ body {
 	color: var(--vscode-errorForeground);
 }
 
+.history-running {
+	flex: none;
+	font-size: 0.8em;
+	padding: 1px 6px;
+	border-radius: 999px;
+	background: rgba(63, 185, 80, 0.18);
+	color: var(--vscode-charts-green, #3fb950);
+	animation: running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes running-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.45;
+	}
+}
+
 .preview {
 	flex: 1;
-	overflow: auto;
-	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	padding: 12px 14px 0;
 }
 
 .preview[hidden] {
 	display: none;
+}
+
+.preview-header {
+	flex: none;
+	padding-bottom: 8px;
 }
 
 .preview-command {
@@ -181,6 +224,107 @@ body {
 	word-break: break-all;
 }
 
+.preview-section-label {
+	margin-top: 16px;
+	padding-top: 12px;
+	border-top: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+	color: var(--vscode-descriptionForeground);
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	font-size: 0.72em;
+}
+
+.preview-output-size {
+	margin-left: 6px;
+	color: var(--vscode-descriptionForeground);
+	text-transform: none;
+	letter-spacing: 0;
+	font-weight: 400;
+}
+
+.preview-output-scroll {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	padding: 4px 2px 12px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
+}
+
+/* A scrollbar appears only while the content actually overflows. */
+.preview-output-scroll.scrollable {
+	overflow: auto;
+}
+
+.preview-output-scroll::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.preview-output-scroll::-webkit-scrollbar-thumb {
+	background: var(--vscode-scrollbarSlider-background);
+	border-radius: 5px;
+}
+
+.preview-output-scroll::-webkit-scrollbar-thumb:hover {
+	background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+.preview-output {
+	margin: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: var(--vscode-editor-font-size, 0.9em);
+	line-height: 1.5;
+	color: var(--vscode-editor-foreground);
+}
+
+/* Gutter-numbered lines (outputs of 2..OUTPUT_LINE_LIMIT lines). */
+.output-line {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+
+.output-num {
+	flex: none;
+	min-width: calc(var(--output-digits, 1) * 1ch + 0.5em);
+	text-align: right;
+	color: var(--vscode-editorLineNumber-foreground, #858585);
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.output-text {
+	flex: 1 1 0;
+	min-width: 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* Alt+Z — wrap off: long lines extend and the pane scrolls horizontally. */
+.preview-output-scroll.nowrap .preview-output:not(.numbered) {
+	white-space: pre;
+	word-break: normal;
+}
+
+.preview-output-scroll.nowrap .output-text {
+	flex: none;
+	white-space: pre;
+	word-break: normal;
+}
+
+.preview-output-scroll.nowrap .preview-output.numbered {
+	width: max-content;
+	min-width: 100%;
+}
+
+.preview-output.loading {
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+}
+
 .popup-footer {
 	display: flex;
 	flex-wrap: wrap;
@@ -200,6 +344,37 @@ kbd {
 	padding: 0 4px;
 	margin-right: 3px;
 	font-size: 0.9em;
+}
+
+.copied-toast {
+	position: fixed;
+	top: 16px;
+	left: 50%;
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 9px 18px;
+	border-radius: 999px;
+	border: 1px solid var(--vscode-notifications-border, var(--vscode-widget-border));
+	background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+	color: var(--vscode-notifications-foreground, var(--vscode-editorWidget-foreground));
+	box-shadow: 0 6px 20px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.35));
+	font-weight: 600;
+	pointer-events: none;
+	opacity: 0;
+	transform: translate(-50%, -12px);
+	transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.copied-toast.visible {
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+
+.copied-check {
+	color: var(--vscode-testing-iconPassed, #2ea043);
+	font-weight: 700;
 }
 
 .empty {

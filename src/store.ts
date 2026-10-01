@@ -22,10 +22,21 @@ interface MetaRow {
 	exitCode: number | null;
 	startTime: number;
 	endTime: number;
+	running: number;
+	outputLength: number;
 }
 
 interface OutputRow extends MetaRow {
 	output: string;
+}
+
+export interface HistoryStoreOptions {
+	/**
+	 * Open the database read-only (used by the browser dev harness to mirror the
+	 * real history without risking writes). Skips WAL setup, migration, and
+	 * stale-row settling; all mutators become no-ops.
+	 */
+	readOnly?: boolean;
 }
 
 const SCHEMA = `
@@ -37,7 +48,8 @@ CREATE TABLE IF NOT EXISTS history (
 	output TEXT NOT NULL,
 	start_time INTEGER NOT NULL,
 	end_time INTEGER NOT NULL,
-	captured_at INTEGER NOT NULL
+	captured_at INTEGER NOT NULL,
+	running INTEGER NOT NULL DEFAULT 0
 );
 `;
 
@@ -47,35 +59,61 @@ const META_COLUMNS = `
 	cwd,
 	exit_code AS exitCode,
 	start_time AS startTime,
-	end_time AS endTime
+	end_time AS endTime,
+	running,
+	length(output) AS outputLength
 `;
 
 export class HistoryStore {
 	private readonly db: DatabaseSync;
 	private readonly listeners = new Set<() => void>();
+	private readonly readOnly: boolean;
 	private limit: number;
 	private closed = false;
 
-	constructor(dbPath: string, limit: number) {
+	constructor(dbPath: string, limit: number, options: HistoryStoreOptions = {}) {
 		this.limit = normalizeLimit(limit);
-		fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-		this.db = new DatabaseSync(dbPath);
-		// WAL keeps writes durable and non-blocking; busy_timeout tolerates a
-		// second window opening the same DB file.
-		this.db.exec('PRAGMA journal_mode = WAL;');
+		this.readOnly = options.readOnly === true;
+		if (!this.readOnly) {
+			fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+		}
+		this.db = this.readOnly
+			? new DatabaseSync(dbPath, { readOnly: true })
+			: new DatabaseSync(dbPath);
+		// busy_timeout tolerates a second connection (the extension host) on the
+		// same DB file.
 		this.db.exec('PRAGMA busy_timeout = 3000;');
+		if (this.readOnly) {
+			return;
+		}
+		// WAL keeps writes durable and non-blocking.
+		this.db.exec('PRAGMA journal_mode = WAL;');
 		this.db.exec(SCHEMA);
+		this.migrate();
+		// A restart cannot resume an in-flight execution, so any row still marked
+		// running is a leftover from a crashed/closed host: settle it as "done".
+		this.db.exec('UPDATE history SET running = 0 WHERE running = 1;');
 	}
 
-	/** Insert a captured command and evict anything past the retention limit. */
+	/** Add the `running` column to databases created before live streaming. */
+	private migrate(): void {
+		const columns = this.db
+			.prepare('PRAGMA table_info(history)')
+			.all() as unknown as Array<{ name: string }>;
+		if (!columns.some(column => column.name === 'running')) {
+			this.db.exec('ALTER TABLE history ADD COLUMN running INTEGER NOT NULL DEFAULT 0;');
+		}
+	}
+
+	/** Insert a finished command and evict anything past the retention limit. */
 	add(execution: CapturedExecution): void {
-		if (this.closed) {
+		if (this.closed || this.readOnly) {
 			return;
 		}
 		this.db
 			.prepare(
-				`INSERT INTO history (command_line, cwd, exit_code, output, start_time, end_time, captured_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?)`
+				`INSERT INTO history (command_line, cwd, exit_code, output, start_time, end_time, captured_at, running)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, 0)`
 			)
 			.run(
 				execution.commandLine,
@@ -86,13 +124,52 @@ export class HistoryStore {
 				execution.endTime,
 				Date.now()
 			);
-		this.db
+		this.evict();
+		this.emit();
+	}
+
+	/**
+	 * Insert a command that is still running (e.g. `tail -f`) and return its id,
+	 * so output can be appended and the row finalized when it ends.
+	 */
+	startRunning(execution: { commandLine: string; cwd?: string; startTime: number }): number {
+		if (this.closed || this.readOnly) {
+			return -1;
+		}
+		const result = this.db
 			.prepare(
-				`DELETE FROM history WHERE id NOT IN (
-					SELECT id FROM history ORDER BY id DESC LIMIT ?
-				)`
+				`INSERT INTO history (command_line, cwd, exit_code, output, start_time, end_time, captured_at, running)
+				 VALUES (?, ?, NULL, '', ?, ?, ?, 1)`
 			)
-			.run(this.limit);
+			.run(
+				execution.commandLine,
+				execution.cwd ?? null,
+				execution.startTime,
+				execution.startTime,
+				Date.now()
+			);
+		this.evict();
+		this.emit();
+		return Number(result.lastInsertRowid);
+	}
+
+	/** Replace the captured output of a running row (called on a throttle). */
+	updateOutput(id: number, output: string): void {
+		if (this.closed || this.readOnly) {
+			return;
+		}
+		this.db.prepare('UPDATE history SET output = ? WHERE id = ?').run(output, id);
+		this.emit();
+	}
+
+	/** Mark a running row as finished with its exit code and end time. */
+	finish(id: number, exitCode: number | undefined, endTime: number): void {
+		if (this.closed || this.readOnly) {
+			return;
+		}
+		this.db
+			.prepare('UPDATE history SET running = 0, exit_code = ?, end_time = ? WHERE id = ?')
+			.run(exitCode ?? null, endTime, id);
 		this.emit();
 	}
 
@@ -127,7 +204,7 @@ export class HistoryStore {
 
 	/** Drop every retained command. */
 	clear(): void {
-		if (this.closed) {
+		if (this.closed || this.readOnly) {
 			return;
 		}
 		this.db.exec('DELETE FROM history;');
@@ -137,17 +214,11 @@ export class HistoryStore {
 	/** Retention limit; changing it also evicts immediately. */
 	setLimit(limit: number): void {
 		const next = normalizeLimit(limit);
-		if (next === this.limit || this.closed) {
+		if (next === this.limit || this.closed || this.readOnly) {
 			return;
 		}
 		this.limit = next;
-		this.db
-			.prepare(
-				`DELETE FROM history WHERE id NOT IN (
-					SELECT id FROM history ORDER BY id DESC LIMIT ?
-				)`
-			)
-			.run(this.limit);
+		this.evict();
 		this.emit();
 	}
 
@@ -175,6 +246,17 @@ export class HistoryStore {
 			}
 		}
 	}
+
+	/** Keep only the newest `limit` rows. */
+	private evict(): void {
+		this.db
+			.prepare(
+				`DELETE FROM history WHERE id NOT IN (
+					SELECT id FROM history ORDER BY id DESC LIMIT ?
+				)`
+			)
+			.run(this.limit);
+	}
 }
 
 function normalizeLimit(limit: number): number {
@@ -192,5 +274,7 @@ function toMeta(row: MetaRow): StoredMeta {
 		exitCode: row.exitCode ?? undefined,
 		startTime: row.startTime,
 		endTime: row.endTime,
+		running: row.running === 1,
+		outputLength: row.outputLength,
 	};
 }

@@ -4,7 +4,7 @@
  * Run with `bun tests/units/history_check.ts`.
  */
 import assert from 'node:assert';
-import { firstLine, toDisplayItem } from '../../src/history';
+import { firstLine, hasCancelMarker, toDisplayItem } from '../../src/history';
 
 const section = (name: string): void => console.log(`\n== ${name} ==`);
 
@@ -29,6 +29,8 @@ const item = toDisplayItem({
 	exitCode: 1,
 	startTime: 1000,
 	endTime: 1200,
+	running: false,
+	outputLength: 42,
 });
 assert.deepStrictEqual(item, {
 	id: 7,
@@ -37,6 +39,8 @@ assert.deepStrictEqual(item, {
 	cwd: '/proj',
 	exitCode: 1,
 	startedAt: 1000,
+	running: false,
+	outputLength: 42,
 });
 console.log('ok - fields mapped');
 
@@ -48,9 +52,20 @@ const bare = toDisplayItem({
 	exitCode: undefined,
 	startTime: 5,
 	endTime: 6,
+	running: true,
+	outputLength: 0,
 });
 assert.strictEqual(bare.cwd, undefined);
 assert.strictEqual(bare.exitCode, undefined);
-console.log('ok - undefined cwd/exitCode preserved');
+assert.strictEqual(bare.running, true);
+console.log('ok - undefined cwd/exitCode preserved, running carried');
+
+section('hasCancelMarker flags Ctrl+C-aborted lines');
+assert.strictEqual(hasCancelMarker('tail -f^C'), true);
+assert.strictEqual(hasCancelMarker('^C'), true);
+assert.strictEqual(hasCancelMarker('echo nope ^C'), true);
+assert.strictEqual(hasCancelMarker('echo done'), false);
+assert.strictEqual(hasCancelMarker("git commit -m 'wip'"), false);
+console.log('ok - cancel marker detected');
 
 console.log('\nhistory_check: all checks passed');

@@ -5,13 +5,19 @@ export interface CapturedExecution {
 	output: string;
 	startTime: number;
 	endTime: number;
+	/** True while the command is still streaming (e.g. `tail -f`). */
+	running?: boolean;
 }
 
 export function formatExecution(data: CapturedExecution): string {
 	const started = formatTimestamp(data.startTime);
 	const ended = formatTimestamp(data.endTime);
 	const duration = formatDuration(data.startTime, data.endTime);
-	const exitCode = data.exitCode !== undefined ? String(data.exitCode) : 'unknown';
+	const exitCode = data.running
+		? 'running'
+		: data.exitCode !== undefined
+			? String(data.exitCode)
+			: 'unknown';
 	const cwdStr = data.cwd ?? '(unknown)';
 
 	const parts: string[] = [

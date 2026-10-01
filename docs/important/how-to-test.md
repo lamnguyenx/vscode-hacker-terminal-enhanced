@@ -11,9 +11,10 @@
 > 9024): meta repo
 > [`dev-code-on-nuc-test-on-pp.md`](../../../../docs/important/dev-code-on-nuc-test-on-pp.md).
 
-This extension has **no webview view** and nothing to click in the terminal; it
-observes the integrated terminal, persists a command history, and shows it in a
-**webview panel**. The test model is the playbook's clean split:
+This extension has nothing to click in the terminal; it observes the
+integrated terminal, persists a command history, and shows it in a **webview
+panel** (editor/window) or a **docked webview view** (panel/sidebars). The test
+model is the playbook's clean split:
 
 ```
 REST Control → arrange + act   (create terminal, run commands, open/clear the popup)
@@ -70,9 +71,11 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | Test | What it proves |
 | --- | --- |
 | first command after a fresh window (activation regression) | `page.reload()` forces a cold extension host; the **first** command of the session is tracked |
-| lists recent commands newest-first and previews the full command | left pane order + right pane preview |
-| selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output |
+| lists recent commands newest-first and previews the full command | left pane order + right pane command, output, and output size |
+| selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output + the in-popup "copied" toast |
 | arrow keys move the selection | `↑`/`↓` keyboard navigation |
+| shows a running command and streams its output | an in-flight command is listed with a `running` badge and its output streams into the right pane |
+| ignores a line cancelled with Ctrl+C before it runs | a `^C`-aborted line is not recorded |
 | history survives a window reload | the SQLite store persists across an extension-host restart |
 | Esc closes the popup | keyboard dismissal |
 | shows an empty state when there is no history | in-popup empty state |
@@ -82,8 +85,9 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | secondary sidebar mode docks the view in the auxiliary bar | the view is actually moved into the Secondary Side Bar container |
 | closeOnCopy closes the editor panel after copying | `terminalEnhanced.closeOnCopy` dismisses the panel |
 
-Observed on the reference stack: `12 passed (2.2m)`. The two reload tests are
-slow (~40s each); the rest are ~2–7s.
+Observed on the reference stack: `14 passed (2.7m)`. The two reload tests are
+slow (~40s each); the rest are ~3–8s. A cold first run can transiently time
+out on `connectOverCDP` — rerun before debugging.
 
 ## How the suite works
 
@@ -96,7 +100,7 @@ slow (~40s each); the rest are ~2–7s.
 | `tests/units/store_check.ts` | SQLite retention, ordering, lazy output, persistence (temp DB). |
 | `tests/playwright/rest.ts` | REST Control client: `restCmd`, `restEval`, `restRaw`, `restAvailable`. |
 | `tests/playwright/workbench.ts` | connect/CDP, terminal helpers, popup helpers, the clipboard hook. |
-| `tests/playwright/terminal-enhanced.spec.ts` | the eight specs. |
+| `tests/playwright/terminal-enhanced.spec.ts` | the Playwright specs. |
 
 ### Reaching the popup webview (code-server)
 
@@ -109,8 +113,35 @@ page.frameLocator('iframe[src*="extensionId=lamnguyenx.hacker-terminal-enhanced"
     .frameLocator('iframe')
 ```
 
-Target inner elements: `.popup`, `.history-row`, `#preview-command`,
-`#history-empty`.
+Target inner elements: `.popup`, `.history-row`, `.history-running`,
+`#preview-command`, `#preview-output`, `#preview-output-size`,
+`#preview-output-scroll`, `#copied-toast`, `#history-empty`. Output lines:
+`.output-line` > `.output-num` (gutter) + `.output-text`; state classes on
+`#preview-output-scroll` — `nowrap` (Alt+Z off) and `scrollable` (content
+overflows; absent ⇒ `overflow: hidden`).
+
+### Live (running) commands
+
+`tail -f`-style commands never fire `onDidEndTerminalShellExecution`, so the
+tracker records a row on **start** (`store.startRunning`), appends output on a
+~250 ms throttle (`store.updateOutput`), and finalizes it on end **or** terminal
+close (`onDidCloseTerminal`). Leftover `running` rows from a crashed/closed host
+are settled at store construction. The test drives an endless
+`bash -c 'while :; do echo ONGOING-$RANDOM; sleep 0.4; done'` (a single
+outer command — the `;`s live inside the quoted child script, so shell
+integration still sees one execution).
+
+### Ctrl+C-cancelled lines (shell-integration quirk)
+
+Pressing Ctrl+C on a line that was typed but **not** run still emits a
+`onDidStartTerminalShellExecution`/`onDidEndTerminalShellExecution` pair. It is
+reported as **high confidence and trusted**, with no output and no exit code,
+and the command line carries the terminal's echoed `^C` (`tail -f^C`, or just
+`^C` at an empty prompt). The tracker must not persist these, so a line matching
+`hasCancelMarker` is held back and only committed if it turns out to have run
+(produced output or reported an exit code) — which keeps a genuine
+`echo ^C` while dropping the aborted line. Reproduce with
+`sendSequence('tail -f')` then `sendSequence('\u0003')`.
 
 ### The clipboard oracle is a renderer hook, not `readText`
 
@@ -199,6 +230,14 @@ Two traps found building this:
 - **A narrow editor column stacks the panes.** The popup is responsive
   (`@media (max-width: 560px)`); with several editor groups open, assert the DOM,
   not the geometry.
+- **Know which writer owns the DB.** More than one code-server can run on this
+  host (the meta container on `:9620`, a host install on `:9120`), each with its
+  own `globalStorage` → its own `history.sqlite`. If commands "don't show up",
+  first ask which instance the terminal belongs to and which file it wrote —
+  check `docker logs` + `ss -ltnp` + each `globalStorage` dir mtime.
+- **After a code-server (re)start the extension host is not running** until a
+  workbench tab connects — REST is down and nothing is captured. Reload the
+  browser tab first, then wonder.
 
 ## Known limits
 
@@ -215,6 +254,25 @@ Two traps found building this:
 - **Desktop VS Code on old Electron/Node** lacks `node:sqlite`; the reference
   code-server is Node 24. The suite targets code-server.
 
+## Browser dev harness (UI iteration)
+
+For visual iteration use the harness instead of the VSIX loop — it serves the
+**real** `media/popup.*` + shared document markup in a plain browser against a
+read-only mirror of the history DB, with hot reload (`bun build --watch` + an
+SSE `reload`/`items` push). See the README "Browser dev harness" section, the
+meta repo `docker-compose.yml` service
+(`lamnguyenx.hacker-terminal-enhanced-webview-dev`), and the plan doc
+[`2026-10-01-live-output-and-dev-harness.md`](../plans/2026/10/01/2026-10-01-live-output-and-dev-harness.md).
+Harness gotchas learned the hard way:
+
+- **Bun's default 10 s `idleTimeout` silently severs SSE** — use a heartbeat
+  frame + `idleTimeout: 255` (already in `scripts/dev-webview.ts`).
+- **Build the HTML per request**, or markup edits won't hot-apply.
+- `bun --watch` is content-based — `touch` doesn't trigger it; test with a real
+  (revertible) edit.
+- The shim's `/api/copied` returns the exact `formatExecution` block; clipboard
+  writes need the page focused (localhost is a secure context).
+
 ## Quick reference
 
 | Task | Command |
@@ -224,5 +282,7 @@ Two traps found building this:
 | Pure-logic checks | `npm run test:units` |
 | Typecheck | `npm run typecheck:webview && npm run typecheck:tests` |
 | Run the E2E suite | `npm run test:e2e` / `make test-e2e` |
+| Harness (host) | `make dev-webview` → http://localhost:5199 |
+| Harness (container) | `docker compose -f ../../docker-compose.yml up -d lamnguyenx.hacker-terminal-enhanced-webview-dev` |
 | REST probe (ad-hoc) | `curl -s -X POST http://localhost:40620 -H 'Content-Type: application/json' -d '{"command":"custom.eval","args":["1+1"]}'` |
 | List CDP targets | `curl -s http://localhost:9024/json/list` |

@@ -5,6 +5,8 @@ src/**
 _refs/**
 docs/**
 tests/**
+dev/**
+scripts/**
 Makefile
 tsconfig.json
 tsconfig.tests.json
