@@ -25,6 +25,8 @@ Background and the earlier activation fix:
 [`docs/plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md`](../plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md).
 The history-popup feature log:
 [`docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md`](../plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md).
+The supplemental terminal-data capture fix (`docker logs -f` / `(no output)`):
+[`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md).
 
 ## Prerequisites
 
@@ -34,6 +36,10 @@ The history-popup feature log:
 - **Option A (preferred):** code-server up with this extension installed, and
   the CDP browser reachable on `CDP_PORT` (9024 by default). REST Control pinned
   by `HACKER_REST_CONTROL_PORT` (40620).
+  The `docker logs -f` regression test additionally needs the **docker CLI +
+  `busybox` image reachable from the extension host** (the code-server container
+  mounts the host docker socket; the helpers shell out via `custom.eval` +
+  `node:child_process`, so the test runner itself needs no docker).
 - **Option B:** a local Extension Development Host on a CDP port. Point
   `CDP_PORT` at it. The popup is a webview panel: under a dev host it is an
   **OOPIF** and Playwright cannot reach it (raw CDP would be needed) — the
@@ -75,6 +81,7 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output + the in-popup "copied" toast |
 | arrow keys move the selection | `↑`/`↓` keyboard navigation |
 | shows a running command and streams its output | an in-flight command is listed with a `running` badge and its output streams into the right pane |
+| streams output the shell-integration data stream never yields (`docker logs -f`) | output that renders in the terminal but is dropped by `execution.read()` is captured by the supplemental raw-data path, streams during quiet periods (timer flush), stays free of the echoed command/OSC markers, and finalizes with its output intact on kill |
 | ignores a line cancelled with Ctrl+C before it runs | a `^C`-aborted line is not recorded |
 | history survives a window reload | the SQLite store persists across an extension-host restart |
 | Esc closes the popup | keyboard dismissal |
@@ -85,7 +92,7 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | secondary sidebar mode docks the view in the auxiliary bar | the view is actually moved into the Secondary Side Bar container |
 | closeOnCopy closes the editor panel after copying | `terminalEnhanced.closeOnCopy` dismisses the panel |
 
-Observed on the reference stack: `14 passed (2.7m)`. The two reload tests are
+Observed on the reference stack: `15 passed (2.6m)`. The two reload tests are
 slow (~40s each); the rest are ~3–8s. A cold first run can transiently time
 out on `connectOverCDP` — rerun before debugging.
 
@@ -123,13 +130,30 @@ overflows; absent ⇒ `overflow: hidden`).
 ### Live (running) commands
 
 `tail -f`-style commands never fire `onDidEndTerminalShellExecution`, so the
-tracker records a row on **start** (`store.startRunning`), appends output on a
-~250 ms throttle (`store.updateOutput`), and finalizes it on end **or** terminal
-close (`onDidCloseTerminal`). Leftover `running` rows from a crashed/closed host
-are settled at store construction. The test drives an endless
+tracker records a row on **start** (`store.startRunning`), writes output on a
+~250 ms cadence while streaming, and finalizes it on end **or** terminal
+close (`onDidCloseTerminal`). Leftover `running` rows from a crashed/closed
+host are settled at store construction. The test drives an endless
 `bash -c 'while :; do echo ONGOING-$RANDOM; sleep 0.4; done'` (a single
 outer command — the `;`s live inside the quoted child script, so shell
 integration still sees one execution).
+
+Output is captured on **two concurrent paths** (see the plan doc
+[`2026-10-05-terminal-data-supplemental-capture.md`](../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md)):
+
+- **Primary:** `execution.read()` — VS Code's `ShellExecutionDataStream`.
+- **Supplemental:** raw `onDidWriteTerminalData` per pending capture, buffered
+  and sliced at the shell-integration `OSC 633;C/D` markers (dropping the
+  echoed command and the markers), then ANSI-stripped.
+
+The supplemental path exists because the primary one **silently drops whole
+classes of commands** — most notably `docker logs -f`, whose output paints the
+terminal but never yields from `execution.read()`. Its flush is on a
+**timer**, not on data events: a burst-then-quiet producer (`docker logs -f`
+prints its tail in the first ~100 ms, then goes silent) would never be
+flushed by an event-driven throttle. A `writeOutput` keep-longer guard stops
+the two writers from blanking each other (the drained primary stream used to
+overwrite flushed supplemental bytes with `''`).
 
 ### Ctrl+C-cancelled lines (shell-integration quirk)
 
@@ -160,10 +184,11 @@ Two traps when driving the terminal over REST:
 - **`;` splits commands.** Shell integration treats `sleep 0.3; echo X` as two
   executions, so the tracked command line becomes just `sleep 0.3`. Use one
   command.
-- **Ultra-fast builtins lose output.** VS Code's `ShellExecutionDataStream`
-  drops output that arrives before the consumer's microtask registers — `echo`
-  and `printf` are unreliable. An external process, or a command whose output is
-  delayed, is captured.
+- **Ultra-fast builtins no longer lose output** since the supplemental
+  raw-data path went in (it captures whatever the terminal renders, dodging
+  the `ShellExecutionDataStream` registration race), but the suite still uses
+  a delayed command for determinism — the primary path's race means timing,
+  not the will of the output, decides which path wins.
 
 The suite therefore runs:
 
@@ -248,9 +273,13 @@ Two traps found building this:
 - **`window` display mode is not covered.** code-server runs in a browser tab
   and cannot move an editor to a separate OS window, so the command falls back
   to the editor area. Verify `window` on a desktop VS Code build by hand.
-- **The ultra-fast-builtin output race is not fixable from the extension** (it
-  is inside VS Code's `ShellExecutionDataStream`). Covered by using delayed
-  commands; real external commands are unaffected.
+- **The ultra-fast-builtin output race is inside VS Code's
+  `ShellExecutionDataStream`** — not fixable from the extension directly, but
+  the supplemental raw-data path compensates it in practice (verified:
+  `sleep 0.3 && echo` and bare fast echoes capture exactly). The suite keeps
+  delayed commands for determinism; the `docker logs -f` test pins the
+  supplemental path itself (it fails with the literal `(no output)` symptom
+  on a build without it).
 - **Desktop VS Code on old Electron/Node** lacks `node:sqlite`; the reference
   code-server is Node 24. The suite targets code-server.
 

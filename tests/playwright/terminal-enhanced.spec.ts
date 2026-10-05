@@ -17,12 +17,14 @@ import {
 	previewOutputSize,
 	readClipboard,
 	reloadWorkbench,
+	removeLogEmitter,
 	resetDisplayMode,
 	runInTerminal,
 	runningBadge,
 	sendSequence,
 	setCloseOnCopy,
 	setDisplayMode,
+	startLogEmitter,
 	waitForClipboard,
 	waitForTerminalOutput,
 } from './workbench';
@@ -220,6 +222,56 @@ test.describe('Hacker Terminal Enhanced', () => {
 			// ... and its output streams into the right pane as it arrives.
 			await expect(previewOutput(ui)).toContainText(/ONGOING-\d+/, { timeout: 15000 });
 		} finally {
+			await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
+			await browser.close();
+		}
+	});
+
+	test('streams output the shell-integration data stream never yields (docker logs -f)', async () => {
+		const { browser, page } = await connectWorkbench();
+		// A boot line, then silence: `docker logs -f` bursts its whole tail in
+		// the first instant and then goes quiet, while staying in the foreground
+		// — exactly the shape that used to leave a "running" row with
+		// "(no output)": VS Code's ShellExecutionDataStream never yields these
+		// chunks (the bytes render in the terminal, but `execution.read()` stays
+		// empty), and an event-driven flush alone would miss a burst-then-quiet
+		// producer. The supplemental capture path (raw terminal data + timer
+		// flush, sliced at the OSC 633;C/D markers) must recover it.
+		const id = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
+		const name = await startLogEmitter(id);
+		try {
+			await prepare(page);
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal(`docker logs -f ${name}`);
+			// The terminal itself shows the boot line immediately...
+			await waitForTerminalOutput(page, new RegExp(`HTE-BOOT-${id}`));
+
+			// ... and so must the popup, while the command is still running.
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			await expect(runningBadge(ui)).toBeVisible();
+			// Before the quiet stretch ends: this catches a missing timer flush
+			// (an event-only flush would never fire during the silence).
+			await expect(previewOutput(ui)).toContainText(new RegExp(`HTE-BOOT-${id}`), {
+				timeout: 4000,
+			});
+			await expect(previewOutput(ui)).toContainText(new RegExp(`HTE-QUIET-${id}`));
+
+			// Clean capture: the echoed command line / OSC markers must not leak.
+			await expect(previewOutput(ui)).not.toContainText('docker logs');
+
+			// Killing the terminal finalizes the row with its output intact
+			// (the old code settled it with no output at all).
+			await restCmd('workbench.action.terminal.killAll');
+			await expect(runningBadge(ui)).toHaveCount(0, { timeout: 10000 });
+			await expect(historyRows(ui)).toHaveCount(1);
+			await expect(previewOutput(ui)).toContainText(new RegExp(`HTE-BOOT-${id}`), {
+				timeout: 10000,
+			});
+		} finally {
+			await removeLogEmitter(name);
 			await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
 			await browser.close();
 		}

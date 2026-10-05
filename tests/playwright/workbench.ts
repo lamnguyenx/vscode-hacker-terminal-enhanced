@@ -122,6 +122,58 @@ export function sendSequence(text: string): Promise<any> {
 	return restCmd('workbench.action.terminal.sendSequence', { text });
 }
 
+// ---------------------------------------------------------------------------
+// Docker helpers (run through the extension host)
+// ---------------------------------------------------------------------------
+
+/**
+ * Run `docker` inside the code-server container (the host docker socket is
+ * mounted there), via `node:child_process` in the extension host. Returns
+ * stdout; throws (parsed REST-side) when docker exits non-zero.
+ */
+export function dockerExec(args: string[], timeoutMs = 60000): Promise<string> {
+	const code =
+		`require('node:child_process').execFileSync('docker', ` +
+		`${JSON.stringify(args)}, { encoding: 'utf8', ` +
+		`stdio: ['ignore', 'pipe', 'ignore'] })`;
+	return restEval<string>(code, timeoutMs);
+}
+
+/**
+ * Start a detached log emitter whose `docker logs -f` reproduces the
+ * data-stream bypass: the container logs two lines at boot (`HTE-BOOT` /
+ * `HTE-QUIET` with the nonce), a design that keeps the terminal visibly
+ * streaming while the shell-integration data stream stays empty.
+ *
+ * Returns the container name. Pair with {@link removeLogEmitter}.
+ */
+export async function startLogEmitter(id: string): Promise<string> {
+	const name = `hte-e2e-logs-${id}`;
+	// A leftover from an aborted run would collide with `--name`.
+	await dockerExec(['rm', '-f', name]).catch(() => undefined);
+	await dockerExec([
+		'run', '-d', '--name', name, 'busybox', 'sh', '-c',
+		`echo HTE-BOOT-${id}; echo HTE-QUIET-${id}; sleep 300`,
+	]);
+	// The container prints its tail only once it has started; wait for the
+	// boot lines so the follow command in the terminal sees them immediately.
+	await expect
+		.poll(
+			async () => {
+				const logs = await dockerExec(['logs', name]).catch(() => '');
+				return logs.includes(`HTE-BOOT-${id}`);
+			},
+			{ timeout: 15000, intervals: [250, 500, 1000] }
+		)
+		.toBe(true);
+	return name;
+}
+
+/** Stop and remove a {@link startLogEmitter} container (idempotent). */
+export function removeLogEmitter(name: string): Promise<any> {
+	return dockerExec(['rm', '-f', name]).catch(() => undefined);
+}
+
 /**
  * Wait until the terminal DOM shows `pattern`.
  *

@@ -49,9 +49,17 @@ nothing to commit, working tree clean
 
 - **Global** across terminals and **persisted to disk** (SQLite under the
   extension's `globalStorage`), so it survives window reloads and restarts.
-- **Long-running commands** (e.g. `tail -f`, a dev server) are listed as soon as
-  they start, flagged with a pulsing `running` badge; their output **streams**
-  into the right pane until the command ends or its terminal closes.
+- **Long-running commands** (e.g. `tail -f`, `docker compose logs -f`, a dev
+  server) are listed as soon as they start, flagged with a pulsing `running`
+  badge; their output **streams** into the right pane until the command ends
+  or its terminal closes.
+- Output is captured on **two paths at once**: VS Code's shell-integration
+  data stream (`execution.read()`), plus a supplemental raw terminal-data
+  feed (`onDidWriteTerminalData`, sliced at the shell-integration markers).
+  Some producers — most notably `docker logs -f` — render their output in the
+  terminal but are silently dropped by the data stream alone; the supplemental
+  path is what makes them stream, and it also recovers the output of
+  ultra-fast shell builtins.
 - Retains the most recent **`historySize`** commands (default **10**).
 - Captures up to **`maxOutputLength`** characters of output per command
   (default **1,000,000** ≈ 1 MB).
@@ -83,13 +91,13 @@ only that container is shown, so the others stay out of the way.
 - **`window` mode needs a desktop build.** Under code-server / a browser,
   VS Code cannot move an editor into its own OS window, so it falls back to the
   editor area.
-- **Very fast commands may have no captured output.** VS Code's shell-integration
-  data stream drops output that arrives before the consumer has registered
-  (`ShellExecutionDataStream`), which can affect instant shell builtins
-  (`echo`, `printf`). Longer-running and external commands are captured
-  normally.
-- Commands running in the background (e.g. `sleep 10 &`) may not have their
-  output fully captured when the next command starts.
+- **VS Code's shell-integration data stream silently drops some commands' output
+  entirely** (inside VS Code itself — most notably `docker logs -f`, whose
+  output renders in the terminal but never reaches `execution.read()`). The
+  supplemental raw terminal-data feed captures these; builtins whose output is
+  faster than the data stream's registration race are recovered the same way.
+  Commands running in the background (e.g. `sleep 10 &`) may still miss output
+  once the next command starts.
 - The history database uses the built-in **`node:sqlite`**, which requires an
   extension-host **Node ≥ 22.5**. The reference stack (code-server 4.x) runs
   Node 24; on an older host the extension shows an error and history is
@@ -114,6 +122,8 @@ Source layout:
 | `src/history.ts` | Pure display helpers (first line, webview item mapping). |
 | `src/historyMessages.ts` | Wire types shared by the host, the webview, and the dev harness. |
 | `src/historyMarkup.ts` | The popup document/body markup, shared by host + dev harness. |
+| `src/ansi.ts` | ANSI/OSC stripping for captured output (incl. shell-integration markers). |
+| `src/format.ts` | The copied-block layout (`SUMMARY` / `COMMAND` / `OUTPUT`). |
 | `src/store.ts` | `node:sqlite` history store (path-in, no `vscode`; read-only mode). |
 | `src/tracker.ts` | Shell-execution tracking; writes captures to the store. |
 | `src/settings.ts` | `historyDisplay` / `closeOnCopy` readers. |
@@ -184,4 +194,7 @@ Environment overrides: `CDP_PORT` (browser CDP port, 9024), `HACKER_REST_CONTROL
 Background:
 [`docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md`](docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md),
 [`docs/plans/2026/10/01/2026-10-01-live-output-and-dev-harness.md`](docs/plans/2026/10/01/2026-10-01-live-output-and-dev-harness.md)
-(live output + dev harness: trials, errors, and lessons).
+(live output + dev harness: trials, errors, and lessons),
+[`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md)
+(`docker logs -f` "(no output)": investigation, supplemental capture, and the
+regression test that pins it).
