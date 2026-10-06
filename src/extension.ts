@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { hideHistory, showHistory } from './display';
 import { HISTORY_VIEW_ID, HistoryViewProvider, syncDisplayContext } from './panelView';
+import { getEmulatedCapture } from './settings';
 import { HistoryStore } from './store';
-import { activateTracker } from './tracker';
+import { activateTracker, type CaptureOptions } from './tracker';
 
 interface TerminalEnhancedConfig {
 	historySize: number;
@@ -17,6 +18,14 @@ function getConfig(): TerminalEnhancedConfig {
 		historySize: cfg.get<number>('historySize', 10),
 		// 1 MB per command: long logs are kept in full, up to the retention limit.
 		maxOutputLength: cfg.get<number>('maxOutputLength', 1_000_000),
+	};
+}
+
+/** Capture options for a command that is starting right now. */
+function getCaptureOptions(): CaptureOptions {
+	return {
+		maxOutputLength: getConfig().maxOutputLength,
+		emulated: getEmulatedCapture(),
 	};
 }
 
@@ -57,7 +66,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		})
 	);
 
-	activateTracker(context, history, () => getConfig().maxOutputLength);
+	activateTracker(context, history, getCaptureOptions);
 }
 
 export function deactivate(): void {

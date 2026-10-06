@@ -24,3 +24,10 @@ export function getCloseOnCopy(): boolean {
 		.getConfiguration('terminalEnhanced')
 		.get<boolean>('closeOnCopy', false);
 }
+
+/** The `terminalEnhanced.emulatedCapture` setting (defaults to `true`). */
+export function getEmulatedCapture(): boolean {
+	return vscode.workspace
+		.getConfiguration('terminalEnhanced')
+		.get<boolean>('emulatedCapture', true);
+}

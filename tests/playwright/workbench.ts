@@ -243,6 +243,14 @@ export function setCloseOnCopy(value: boolean): Promise<any> {
 	);
 }
 
+/** Set (or clear, with `null`) `terminalEnhanced.emulatedCapture` (Global). */
+export function setEmulatedCapture(value: boolean | null): Promise<any> {
+	return restEval(
+		`vscode.workspace.getConfiguration('terminalEnhanced')` +
+			`.update('emulatedCapture', ${value === null ? 'undefined' : value}, vscode.ConfigurationTarget.Global).then(() => true)`
+	);
+}
+
 /** Hide the bottom panel (its tabs, including the docked history view). */
 export function closePanel(): Promise<any> {
 	return restCmd('workbench.action.closePanel').catch(() => undefined);

@@ -24,6 +24,7 @@ import {
 	sendSequence,
 	setCloseOnCopy,
 	setDisplayMode,
+	setEmulatedCapture,
 	startLogEmitter,
 	waitForClipboard,
 	waitForTerminalOutput,
@@ -51,6 +52,7 @@ type DisplayMode = 'editor' | 'panel' | 'sidebar' | 'secondarySidebar' | 'window
 
 let originalDisplay: string | null = null;
 let originalCloseOnCopy: boolean | null = null;
+let originalEmulated: boolean | null = null;
 
 test.beforeAll(async () => {
 	originalDisplay = await restEval<string | null>(
@@ -58,6 +60,9 @@ test.beforeAll(async () => {
 	);
 	originalCloseOnCopy = await restEval<boolean | null>(
 		`vscode.workspace.getConfiguration('terminalEnhanced').inspect('closeOnCopy')?.globalValue ?? null`
+	);
+	originalEmulated = await restEval<boolean | null>(
+		`vscode.workspace.getConfiguration('terminalEnhanced').inspect('emulatedCapture')?.globalValue ?? null`
 	);
 });
 
@@ -73,6 +78,9 @@ test.afterAll(async () => {
 		).catch(() => undefined);
 	} else {
 		await setCloseOnCopy(originalCloseOnCopy).catch(() => undefined);
+	}
+	if (originalEmulated !== null) {
+		await setEmulatedCapture(originalEmulated).catch(() => undefined);
 	}
 });
 
@@ -273,6 +281,67 @@ test.describe('Hacker Terminal Enhanced', () => {
 		} finally {
 			await removeLogEmitter(name);
 			await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
+			await browser.close();
+		}
+	});
+
+	test('captures the screen a full-screen TUI is displaying (alternate screen)', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page);
+			await setEmulatedCapture(true);
+			await clearHistory();
+			await openTerminal(page);
+
+			// A minimal full-screen app: enter the alternate screen, clear it,
+			// paint two rows, then stay there for a while. The raw byte stream
+			// is nothing but escape sequences and cursor addressing; only an
+			// emulator can turn it into the screen the user is looking at.
+			await runInTerminal(
+				`bash -c 'printf "\\033[?1049h\\033[2J\\033[1;1HTUI-ONE-$RANDOM\\033[3;5HTUI-TWO-$RANDOM"; sleep 60'`
+			);
+			await waitForTerminalOutput(page, /TUI-ONE-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			await expect(runningBadge(ui)).toBeVisible();
+			// The painted screen, live, while the TUI is still up.
+			await expect(previewOutput(ui)).toContainText(/TUI-ONE-\d+/, { timeout: 6000 });
+			await expect(previewOutput(ui)).toContainText(/TUI-TWO-\d+/);
+			// The control sequences are consumed, not leaked into the capture.
+			await expect(previewOutput(ui)).not.toContainText('?1049');
+			await expect(previewOutput(ui)).not.toContainText('[2J');
+
+			// The alt buffer is discarded by the app on exit, so a surviving
+			// snapshot can only come from capturing while it was up.
+			await restCmd('workbench.action.terminal.killAll');
+			await expect(runningBadge(ui)).toHaveCount(0, { timeout: 10000 });
+			await expect(historyRows(ui)).toHaveCount(1);
+			await expect(previewOutput(ui)).toContainText(/TUI-ONE-\d+/);
+			await expect(previewOutput(ui)).toContainText(/TUI-TWO-\d+/);
+		} finally {
+			await setEmulatedCapture(originalEmulated).catch(() => undefined);
+			await restCmd('workbench.action.terminal.killAll').catch(() => undefined);
+			await browser.close();
+		}
+	});
+
+	test('linear capture still works when emulation is disabled', async () => {
+		const { browser, page } = await connectWorkbench();
+		try {
+			await prepare(page);
+			await setEmulatedCapture(false);
+			await clearHistory();
+			await openTerminal(page);
+
+			await runInTerminal("bash -c 'sleep 0.3 && echo FALLBACK-$RANDOM'");
+			await waitForTerminalOutput(page, /FALLBACK-\d+/);
+
+			const ui = await openHistory(page);
+			await expect(historyRows(ui)).toHaveCount(1, { timeout: 10000 });
+			await expect(previewOutput(ui)).toContainText(/FALLBACK-\d+/);
+		} finally {
+			await setEmulatedCapture(originalEmulated).catch(() => undefined);
 			await browser.close();
 		}
 	});

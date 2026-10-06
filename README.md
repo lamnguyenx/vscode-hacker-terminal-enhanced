@@ -53,12 +53,16 @@ nothing to commit, working tree clean
   server) are listed as soon as they start, flagged with a pulsing `running`
   badge; their output **streams** into the right pane until the command ends
   or its terminal closes.
-- Output is captured on **two paths at once**: VS Code's shell-integration
-  data stream (`execution.read()`), plus a supplemental raw terminal-data
-  feed (`onDidWriteTerminalData`, sliced at the shell-integration markers).
-  Some producers — most notably `docker logs -f` — render their output in the
-  terminal but are silently dropped by the data stream alone; the supplemental
-  path is what makes them stream, and it also recovers the output of
+- Output is captured by feeding the terminal's raw byte stream through a
+  **headless terminal emulator**, so full-screen TUIs (`tig`, `gdu`, `less`,
+  `vim`, `htop`, …) capture **the screen they are displaying** instead of a
+  meaningless run of every repaint. It also re-joins soft-wrapped long lines
+  into single logical lines and collapses `\r` progress redraws to their final
+  state. Set `terminalEnhanced.emulatedCapture` to `false` for the previous
+  linear ANSI-strip capture.
+- The emulator path also recovers output VS Code's shell-integration data
+  stream silently drops — most notably `docker logs -f`, whose bytes render in
+  the terminal but never reach `execution.read()` — and the output of
   ultra-fast shell builtins.
 - Retains the most recent **`historySize`** commands (default **10**).
 - Captures up to **`maxOutputLength`** characters of output per command
@@ -72,6 +76,7 @@ nothing to commit, working tree clean
 | `terminalEnhanced.closeOnCopy` | `false` | Close the view/panel immediately after a command is copied. |
 | `terminalEnhanced.historySize` | `10` | How many recent commands to keep. |
 | `terminalEnhanced.maxOutputLength` | `1000000` | Max characters of output captured per command. |
+| `terminalEnhanced.emulatedCapture` | `true` | Capture through a headless terminal emulator, so full-screen TUIs record the screen they are showing and long lines are re-joined. Off = previous linear ANSI-strip capture. |
 
 The docked modes use a single view that is moved to the configured container;
 only that container is shown, so the others stay out of the way.
@@ -91,11 +96,13 @@ only that container is shown, so the others stay out of the way.
 - **`window` mode needs a desktop build.** Under code-server / a browser,
   VS Code cannot move an editor into its own OS window, so it falls back to the
   editor area.
-- **VS Code's shell-integration data stream silently drops some commands' output
-  entirely** (inside VS Code itself — most notably `docker logs -f`, whose
-  output renders in the terminal but never reaches `execution.read()`). The
-  supplemental raw terminal-data feed captures these; builtins whose output is
-  faster than the data stream's registration race are recovered the same way.
+- **Full-screen TUIs are captured as their visible screen, not their session
+  history.** A TUI repaints in place on the alternate screen; the extension
+  snapshots the last screen it displayed (e.g. tig's log view, gdu's summary)
+  rather than reconstructing keystroke-by-keystroke navigation.
+- **VS Code's shell-integration data stream silently drops some commands'
+  output entirely** (inside VS Code itself — most notably `docker logs -f`).
+  The emulator path captures these and the output of ultra-fast builtins.
   Commands running in the background (e.g. `sleep 10 &`) may still miss output
   once the next command starts.
 - The history database uses the built-in **`node:sqlite`**, which requires an
@@ -113,6 +120,7 @@ only that container is shown, so the others stay out of the way.
 ```bash
 make build      # npm install + compile (tsc + bun webview bundle) + package *.vsix
 make install    # build + install into VS Code and code-server
+make install-code-server-dev  # build + install into the docker-compose code-server
 ```
 
 Source layout:
@@ -126,6 +134,7 @@ Source layout:
 | `src/format.ts` | The copied-block layout (`SUMMARY` / `COMMAND` / `OUTPUT`). |
 | `src/store.ts` | `node:sqlite` history store (path-in, no `vscode`; read-only mode). |
 | `src/tracker.ts` | Shell-execution tracking; writes captures to the store. |
+| `src/terminalEmulator.ts` | Headless-xterm capture: TUI screen snapshots + buffer serialization (no `vscode`). |
 | `src/settings.ts` | `historyDisplay` / `closeOnCopy` readers. |
 | `src/extension.ts` | Activation, command + view registration. |
 | `src/display.ts` | Routes `showHistory` to the configured presentation. |
@@ -172,7 +181,7 @@ within a beat.
 Three layers:
 
 ```bash
-npm run test:units        # pure logic (bun): history helpers + SQLite store
+npm run test:units        # pure logic (bun): history helpers + SQLite store + emulator
 npm run typecheck:webview # strict tsc over src/webview
 npm run typecheck:tests   # strict tsc over the Playwright suite
 npm run test:e2e          # Playwright E2E (REST Control arranges/acts, CDP asserts)
@@ -197,4 +206,9 @@ Background:
 (live output + dev harness: trials, errors, and lessons),
 [`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md)
 (`docker logs -f` "(no output)": investigation, supplemental capture, and the
-regression test that pins it).
+regression test that pins it),
+[`docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`](docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md)
+(tig/gdu "(garbage)": capturing full-screen TUIs and all commands through a
+headless xterm emulator),
+[`docs/plans/2026/10/06/2026-10-06-emulated-capture-rollout.md`](docs/plans/2026/10/06/2026-10-06-emulated-capture-rollout.md)
+(rollout retrospective: install target, fresh-install trials, and lessons).

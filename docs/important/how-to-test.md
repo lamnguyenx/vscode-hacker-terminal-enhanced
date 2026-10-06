@@ -27,6 +27,10 @@ The history-popup feature log:
 [`docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md`](../plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md).
 The supplemental terminal-data capture fix (`docker logs -f` / `(no output)`):
 [`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md).
+The emulated-capture rewrite (TUIs + all commands through a headless xterm):
+[`docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`](../plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md).
+Rollout + fresh-install trials (install target, registry trap, CDP wedges):
+[`docs/plans/2026/10/06/2026-10-06-emulated-capture-rollout.md`](../plans/2026/10/06/2026-10-06-emulated-capture-rollout.md).
 
 ## Prerequisites
 
@@ -40,6 +44,9 @@ The supplemental terminal-data capture fix (`docker logs -f` / `(no output)`):
   `busybox` image reachable from the extension host** (the code-server container
   mounts the host docker socket; the helpers shell out via `custom.eval` +
   `node:child_process`, so the test runner itself needs no docker).
+  The TUI regression test needs **no external TUI**: it paints the alternate
+  screen with `bash`'s builtin `printf` (`tig`/`gdu` are handy for manual
+  checks, not required).
 - **Option B:** a local Extension Development Host on a CDP port. Point
   `CDP_PORT` at it. The popup is a webview panel: under a dev host it is an
   **OOPIF** and Playwright cannot reach it (raw CDP would be needed) — the
@@ -51,6 +58,9 @@ The supplemental terminal-data capture fix (`docker logs -f` / `(no output)`):
 ```sh
 make build    # npm install + tsc + bun build webview + vsce pack
 
+# or, one step: build + install into the compose code-server
+make install-code-server-dev
+
 docker exec -u "$(id -u):$(id -g)" vscode-hacker-meta-code-server-1 code-server \
   --install-extension "$PWD/build/lamnguyenx.hacker-terminal-enhanced-<version>.vsix" \
   --force \
@@ -58,8 +68,17 @@ docker exec -u "$(id -u):$(id -g)" vscode-hacker-meta-code-server-1 code-server 
   --extensions-dir /home/lamnt45/.local/share/code-server/extensions
 ```
 
+`install-code-server-dev` targets the meta repo's compose service
+(`vscode-hacker-meta-code-server-1`); override `CODE_SERVER_CONTAINER`,
+`CODE_SERVER_USER_DATA`, or `CODE_SERVER_EXTENSIONS` if yours differ.
+
 Then **reload the browser tab** so a fresh extension host picks up the new
-`out/`. Bump `package.json#version` for a guaranteed fresh extension folder.
+`out/`. Bump `package.json#version` for a guaranteed fresh extension folder:
+installing the **same version** that is already loaded fails with
+`Please restart VS Code before reinstalling …` (the registry in
+`extensions.json` still lists it), and deleting the folder by hand leaves that
+stale entry behind. A version bump makes it a new folder and the install just
+works.
 
 ### Run the suites
 
@@ -81,7 +100,9 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | selecting a row previews it; Enter copies that command's full block | click → preview; `Enter` → clipboard has summary/command/output + the in-popup "copied" toast |
 | arrow keys move the selection | `↑`/`↓` keyboard navigation |
 | shows a running command and streams its output | an in-flight command is listed with a `running` badge and its output streams into the right pane |
-| streams output the shell-integration data stream never yields (`docker logs -f`) | output that renders in the terminal but is dropped by `execution.read()` is captured by the supplemental raw-data path, streams during quiet periods (timer flush), stays free of the echoed command/OSC markers, and finalizes with its output intact on kill |
+| streams output the shell-integration data stream never yields (`docker logs -f`) | output that renders in the terminal but is dropped by `execution.read()` is captured by the emulator, streams during quiet periods (timer flush), stays free of the echoed command/OSC markers, and finalizes with its output intact on kill |
+| captures the screen a full-screen TUI is displaying (alternate screen) | a synthetic alternate-screen app (`printf '\033[?1049h…'`) is captured as the painted screen, live and after kill, with no control-sequence leakage; the alt buffer is discarded on exit, so this can only pass if the screen is snapshotted while up |
+| linear capture still works when emulation is disabled | `terminalEnhanced.emulatedCapture=false` falls back to the previous ANSI-strip path and still captures output |
 | ignores a line cancelled with Ctrl+C before it runs | a `^C`-aborted line is not recorded |
 | history survives a window reload | the SQLite store persists across an extension-host restart |
 | Esc closes the popup | keyboard dismissal |
@@ -92,7 +113,7 @@ CDP_PORT=9024 HACKER_REST_CONTROL_PORT=40620 CODE_SERVER_URL='https://localhost:
 | secondary sidebar mode docks the view in the auxiliary bar | the view is actually moved into the Secondary Side Bar container |
 | closeOnCopy closes the editor panel after copying | `terminalEnhanced.closeOnCopy` dismisses the panel |
 
-Observed on the reference stack: `15 passed (2.6m)`. The two reload tests are
+Observed on the reference stack: `17 passed (2.8m)`. The two reload tests are
 slow (~40s each); the rest are ~3–8s. A cold first run can transiently time
 out on `connectOverCDP` — rerun before debugging.
 
@@ -105,6 +126,7 @@ out on `connectOverCDP` — rerun before debugging.
 | --- | --- |
 | `tests/units/history_check.ts` | `firstLine` / `toDisplayItem` (pure). |
 | `tests/units/store_check.ts` | SQLite retention, ordering, lazy output, persistence (temp DB). |
+| `tests/units/emulator_check.ts` | Headless-xterm wrapper: linear capture, wrapped-line re-join, `\r` overwrite, alt-screen detection, resize, scrollback. |
 | `tests/playwright/rest.ts` | REST Control client: `restCmd`, `restEval`, `restRaw`, `restAvailable`. |
 | `tests/playwright/workbench.ts` | connect/CDP, terminal helpers, popup helpers, the clipboard hook. |
 | `tests/playwright/terminal-enhanced.spec.ts` | the Playwright specs. |
@@ -138,22 +160,36 @@ host are settled at store construction. The test drives an endless
 outer command — the `;`s live inside the quoted child script, so shell
 integration still sees one execution).
 
-Output is captured on **two concurrent paths** (see the plan doc
-[`2026-10-05-terminal-data-supplemental-capture.md`](../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md)):
+Output is captured by feeding the terminal's raw byte stream
+(`onDidWriteTerminalData`) through a **headless xterm** emulator
+(`src/terminalEmulator.ts`), sliced at the shell-integration `OSC 633;C/D`
+markers so the echoed command and the markers stay out. The emulator is what
+makes full-screen TUIs work: it holds the screen grid and the **alternate
+buffer**, so `tig`/`gdu`/`less`/`vim`/`htop` capture the screen they are
+displaying instead of a meaningless concatenation of every repaint. It also
+recovers output VS Code's `ShellExecutionDataStream` silently drops — most
+notably `docker logs -f`, whose bytes paint the terminal but never yield from
+`execution.read()` — and the output of ultra-fast builtins.
 
-- **Primary:** `execution.read()` — VS Code's `ShellExecutionDataStream`.
-- **Supplemental:** raw `onDidWriteTerminalData` per pending capture, buffered
-  and sliced at the shell-integration `OSC 633;C/D` markers (dropping the
-  echoed command and the markers), then ANSI-stripped.
+- **Normal buffers** are serialized in full (scrollback included), with
+  soft-wrapped rows re-joined via `IBufferLine.isWrapped` so a long line stays
+  one logical line rather than being hard-wrapped at the terminal width.
+- **Alternate screens** are snapshotted as the visible viewport on the ~250 ms
+  timer and remembered: the app discards the alt buffer (`?1049l`) *before* the
+  `633;D` end marker, so serializing only at the end would capture the restored,
+  empty screen. The timer (not a data event) is also what flushes a
+  burst-then-quiet producer like `docker logs -f`.
+- Memory is bounded by scrollback (`≈ maxOutputLength / columns` lines);
+  eviction appends `[output truncated]`.
 
-The supplemental path exists because the primary one **silently drops whole
-classes of commands** — most notably `docker logs -f`, whose output paints the
-terminal but never yields from `execution.read()`. Its flush is on a
-**timer**, not on data events: a burst-then-quiet producer (`docker logs -f`
-prints its tail in the first ~100 ms, then goes silent) would never be
-flushed by an event-driven throttle. A `writeOutput` keep-longer guard stops
-the two writers from blanking each other (the drained primary stream used to
-overwrite flushed supplemental bytes with `''`).
+The terminal grid comes from `Terminal.dimensions` and
+`onDidChangeTerminalDimensions` — both present at runtime but absent from the
+shipped `@types/vscode`, so the tracker types them locally (the same dodge the
+`onDidWriteTerminalData` hook already used).
+
+Setting `terminalEnhanced.emulatedCapture=false` restores the previous linear
+ANSI-strip path (`execution.read()` primary + raw supplemental, sliced at the
+markers, with a keep-longer guard against the two writers blanking each other).
 
 ### Ctrl+C-cancelled lines (shell-integration quirk)
 
@@ -184,11 +220,10 @@ Two traps when driving the terminal over REST:
 - **`;` splits commands.** Shell integration treats `sleep 0.3; echo X` as two
   executions, so the tracked command line becomes just `sleep 0.3`. Use one
   command.
-- **Ultra-fast builtins no longer lose output** since the supplemental
-  raw-data path went in (it captures whatever the terminal renders, dodging
-  the `ShellExecutionDataStream` registration race), but the suite still uses
-  a delayed command for determinism — the primary path's race means timing,
-  not the will of the output, decides which path wins.
+- **Ultra-fast builtins no longer lose output** since the emulator captures
+  whatever the terminal renders, dodging the `ShellExecutionDataStream`
+  registration race — but the suite still uses a delayed command for
+  determinism.
 
 The suite therefore runs:
 
@@ -263,6 +298,19 @@ Two traps found building this:
 - **After a code-server (re)start the extension host is not running** until a
   workbench tab connects — REST is down and nothing is captured. Reload the
   browser tab first, then wonder.
+- **A wedged `about:blank` tab breaks *every* test at `connectOverCDP`.** The
+  symptom is all tests failing identically with a 30s timeout at
+  `workbench.ts`. Check `curl -s http://localhost:9024/json/list` for a `page`
+  with an empty title/URL and close it:
+  `curl -s -X PUT http://localhost:9024/json/close/<id>`. To open the code-server
+  tab, prefer `PUT /json/new?url=<url-encoded>` over Playwright
+  `page.goto` — a fresh tab on the self-signed origin can hang mid-navigation
+  and wedge the whole CDP connection.
+- **Installing over an installed version fails** with `Please restart VS Code
+  before reinstalling …`. It is the `extensions.json` registry, not a live
+  extension host: bump `package.json#version` (see the install section) or, if
+  you already deleted the folder, clear the stale registry entry from the host
+  bind mount while the container is stopped.
 
 ## Known limits
 
@@ -273,13 +321,22 @@ Two traps found building this:
 - **`window` display mode is not covered.** code-server runs in a browser tab
   and cannot move an editor to a separate OS window, so the command falls back
   to the editor area. Verify `window` on a desktop VS Code build by hand.
+- **A full-screen TUI is captured as its last visible screen**, not its
+  session history. The alternate buffer is discarded on exit, so the extension
+  snapshots it while the app is up (`tig`'s log view, `gdu`'s summary). By
+  design it does not reconstruct navigation. Memory is bounded by the
+  `maxOutputLength`-derived scrollback; tabs render as spaces (the emulator
+  expands tab stops) and `\r` progress redraws collapse to their final state.
 - **The ultra-fast-builtin output race is inside VS Code's
   `ShellExecutionDataStream`** — not fixable from the extension directly, but
-  the supplemental raw-data path compensates it in practice (verified:
-  `sleep 0.3 && echo` and bare fast echoes capture exactly). The suite keeps
-  delayed commands for determinism; the `docker logs -f` test pins the
-  supplemental path itself (it fails with the literal `(no output)` symptom
-  on a build without it).
+  the emulator path compensates it in practice (verified: `sleep 0.3 && echo`
+  and bare fast echoes capture exactly). The `docker logs -f` and alternate-
+  screen tests pin the emulator path; the `emulatedCapture=false` test pins the
+  linear fallback.
+- **`Terminal.dimensions` / `onDidChangeTerminalDimensions` are not in
+  `@types/vscode`** (they are runtime-present, like `onDidWriteTerminalData`),
+  so the tracker accesses them through local types. If a future VS Code drops
+  them, the emulator falls back to 80×24 and TUI snapshots would be mis-sized.
 - **Desktop VS Code on old Electron/Node** lacks `node:sqlite`; the reference
   code-server is Node 24. The suite targets code-server.
 
@@ -307,6 +364,7 @@ Harness gotchas learned the hard way:
 | Task | Command |
 | --- | --- |
 | Build the VSIX | `make build` |
+| Install into the compose code-server | `make install-code-server-dev` (+ reload the tab) |
 | Install into code-server | `docker exec -u "$(id -u):$(id -g)" vscode-hacker-meta-code-server-1 code-server --install-extension … --force --user-data-dir … --extensions-dir …` + reload tab |
 | Pure-logic checks | `npm run test:units` |
 | Typecheck | `npm run typecheck:webview && npm run typecheck:tests` |

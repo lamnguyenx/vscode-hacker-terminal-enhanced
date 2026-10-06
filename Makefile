@@ -6,7 +6,14 @@ VSIX    := build/$(EXT_ID).vsix
 
 CDP_PORT ?= 9024
 
-.PHONY: build install install-code install-code-server clean vsix test-units typecheck-webview typecheck-tests test-e2e dev-webview dev-webview-docker
+## Meta repo's docker-compose code-server (service `code-server`, project
+## `vscode-hacker-meta`). The repo is mounted at the same path inside the
+## container, so an absolute host path resolves there too.
+CODE_SERVER_CONTAINER  ?= vscode-hacker-meta-code-server-1
+CODE_SERVER_USER_DATA  ?= /home/lamnt45/.local/share/code-server
+CODE_SERVER_EXTENSIONS ?= $(CODE_SERVER_USER_DATA)/extensions
+
+.PHONY: build install install-code install-code-server install-code-server-dev clean vsix test-units typecheck-webview typecheck-tests test-e2e dev-webview dev-webview-docker
 
 build: vsix
 
@@ -18,10 +25,20 @@ install-code: build
 install-code-server: build
 	code-server --install-extension $(VSIX) --force
 
+## Build + install into the code-server running under docker-compose.
+## RELOAD THE BROWSER TAB afterwards so a fresh extension host picks up `out/`.
+install-code-server-dev: build
+	docker exec -u "$$(id -u):$$(id -g)" $(CODE_SERVER_CONTAINER) code-server \
+		--install-extension "$(CURDIR)/$(VSIX)" \
+		--force \
+		--user-data-dir $(CODE_SERVER_USER_DATA) \
+		--extensions-dir $(CODE_SERVER_EXTENSIONS)
+
 ## Pure-logic checks (bun; no host, no compile).
 test-units:
 	bun tests/units/history_check.ts
 	bun tests/units/store_check.ts
+	bun tests/units/emulator_check.ts
 
 ## Strict typecheck of the webview bundle + the committed test suite.
 typecheck-webview:

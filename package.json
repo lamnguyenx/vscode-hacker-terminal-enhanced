@@ -2,7 +2,7 @@
 	"name": "hacker-terminal-enhanced",
 	"displayName": "Hacker Terminal Enhanced",
 	"description": "Browse and copy recent terminal commands and their output in an LLM-friendly format.",
-	"version": "2026.9.9",
+	"version": "2026.10.5",
 	"publisher": "lamnguyenx",
 	"author": "lamnguyenx <lamfm95@gmail.com>",
 	"license": "MIT",
@@ -89,6 +89,11 @@
 					"default": 1000000,
 					"minimum": 1000,
 					"description": "Maximum number of characters of a command's output to capture (per command)."
+				},
+				"terminalEnhanced.emulatedCapture": {
+					"type": "boolean",
+					"default": true,
+					"description": "Capture output through a headless terminal emulator, so full-screen TUIs (tig, gdu, less, vim, htop) record the screen they are displaying and soft-wrapped long lines are re-joined. Turn off to use the previous linear ANSI-strip capture."
 				}
 			}
 		},
@@ -155,5 +160,8 @@
 		"@types/vscode": "^1.100.0",
 		"@vscode/vsce": "^3.9.2",
 		"typescript": "^5.5.0"
+	},
+	"dependencies": {
+		"@xterm/headless": "^6.0.0"
 	}
 }
