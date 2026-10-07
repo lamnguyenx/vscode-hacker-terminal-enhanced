@@ -47,8 +47,7 @@
 				"key": "ctrl+cmd+shift+c",
 				"mac": "ctrl+cmd+shift+c",
 				"linux": "ctrl+alt+shift+c",
-				"win": "ctrl+alt+shift+c",
-				"when": "terminalFocus"
+				"win": "ctrl+alt+shift+c"
 			}
 		],
 		"configuration": {
