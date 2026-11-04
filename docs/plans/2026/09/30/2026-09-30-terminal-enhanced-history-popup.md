@@ -10,7 +10,7 @@ and installed on the reference stack)
 **Files changed:** `src/extension.ts`, `src/tracker.ts`, `package.json`,
 `Makefile`, `.gitignore`, `.vscodeignore`, `tests/playwright/workbench.ts`,
 `tests/playwright/terminal-enhanced.spec.ts`, `README.md`,
-`docs/important/how-to-test.md`, `docs/important/restored-terminal-limitation.md`.
+`docs/important/testing/how-to-test.md`, `docs/important/internals/restored-terminal-limitation.md`.
 
 ## Context
 

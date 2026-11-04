@@ -7,7 +7,7 @@ rebuilding `HEAD~1` and watching `(no output)` again; VSIX rebuilt and
 installed on the reference stack)
 **Files changed:** `src/tracker.ts`, `src/ansi.ts`,
 `tests/playwright/workbench.ts`, `tests/playwright/terminal-enhanced.spec.ts`,
-`README.md`, `docs/important/how-to-test.md`, this doc.
+`README.md`, `docs/important/testing/how-to-test.md`, this doc.
 
 ## 1. The symptom
 

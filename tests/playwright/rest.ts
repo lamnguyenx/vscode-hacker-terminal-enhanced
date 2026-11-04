@@ -5,7 +5,7 @@
  * extension host and executes arbitrary `vscode.commands.executeCommand` /
  * `custom.eval` requests. This is the deterministic "control channel" for
  * arranging and acting on the workbench — no command-palette automation, no
- * browser-reserved shortcut problems. See `docs/important/how-to-test-all.md`
+ * browser-reserved shortcut problems. See `docs/important/testing/how-to-test-all.md`
  * §3 in the meta repo.
  *
  * The port is pinned by `HACKER_REST_CONTROL_PORT` in the meta repo's

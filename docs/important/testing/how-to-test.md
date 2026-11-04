@@ -1,7 +1,7 @@
 # How to test Hacker Terminal Enhanced
 
 > **General rules live in the meta repo** —
-> [`how-to-test-all.md`](../../../../docs/important/how-to-test-all.md):
+> [`how-to-test-all.md`](../../../../../docs/important/testing/how-to-test-all.md):
 > environment choice, the REST-vs-CDP test model, determinism, state hygiene,
 > port/path pinning, cache-busting, and flakiness. **Read it first.**
 > This document keeps only what is specific to *this* extension: the install,
@@ -9,7 +9,7 @@
 >
 > Environment / topology (code-server in Docker on nuc, browser on pp, CDP
 > 9024): meta repo
-> [`dev-code-on-nuc-test-on-pp.md`](../../../../docs/important/dev-code-on-nuc-test-on-pp.md).
+> [`dev-code-on-nuc-test-on-pp.md`](../../../../../docs/important/dev-env/dev-code-on-nuc-test-on-pp.md).
 
 This extension has nothing to click in the terminal; it observes the
 integrated terminal, persists a command history, and shows it in a **webview
@@ -22,15 +22,15 @@ CDP/Playwright → assert only   (popup webview DOM, copied payload, status-bar 
 ```
 
 Background and the earlier activation fix:
-[`docs/plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md`](../plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md).
+[`docs/plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md`](../../plans/2026/09/29/2026-09-29-terminal-enhanced-activation-fix-and-playwright-e2e.md).
 The history-popup feature log:
-[`docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md`](../plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md).
+[`docs/plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md`](../../plans/2026/09/30/2026-09-30-terminal-enhanced-history-popup.md).
 The supplemental terminal-data capture fix (`docker logs -f` / `(no output)`):
-[`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md).
+[`docs/plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md`](../../plans/2026/10/05/2026-10-05-terminal-data-supplemental-capture.md).
 The emulated-capture rewrite (TUIs + all commands through a headless xterm):
-[`docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`](../plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md).
+[`docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`](../../plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md).
 Rollout + fresh-install trials (install target, registry trap, CDP wedges):
-[`docs/plans/2026/10/06/2026-10-06-emulated-capture-rollout.md`](../plans/2026/10/06/2026-10-06-emulated-capture-rollout.md).
+[`docs/plans/2026/10/06/2026-10-06-emulated-capture-rollout.md`](../../plans/2026/10/06/2026-10-06-emulated-capture-rollout.md).
 
 ## Prerequisites
 
@@ -345,10 +345,10 @@ Two traps found building this:
 For visual iteration use the harness instead of the VSIX loop — it serves the
 **real** `media/popup.*` + shared document markup in a plain browser against a
 read-only mirror of the history DB, with hot reload (`bun build --watch` + an
-SSE `reload`/`items` push). See the README "Browser dev harness" section, the
+SSE `reload`/`items` push). See [Browser dev harness](../internals/browser-dev-harness.md), the
 meta repo `docker-compose.yml` service
 (`lamnguyenx.hacker-terminal-enhanced-webview-dev`), and the plan doc
-[`2026-10-01-live-output-and-dev-harness.md`](../plans/2026/10/01/2026-10-01-live-output-and-dev-harness.md).
+[`2026-10-01-live-output-and-dev-harness.md`](../../plans/2026/10/01/2026-10-01-live-output-and-dev-harness.md).
 Harness gotchas learned the hard way:
 
 - **Bun's default 10 s `idleTimeout` silently severs SSE** — use a heartbeat

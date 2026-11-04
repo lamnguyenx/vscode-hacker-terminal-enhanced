@@ -5,7 +5,7 @@
 **Files changed:** `package.json`, `Makefile`, `.gitignore`, `.vscodeignore`, `README.md`,
 `playwright.config.ts` (new), `tsconfig.tests.json` (new),
 `tests/playwright/rest.ts` (new), `tests/playwright/workbench.ts` (new),
-`tests/playwright/terminal-enhanced.spec.ts` (new), `docs/important/how-to-test.md` (new),
+`tests/playwright/terminal-enhanced.spec.ts` (new), `docs/important/testing/how-to-test.md` (new),
 this plan doc.
 
 ## Context
@@ -20,8 +20,8 @@ pp : browser opens https://localhost:9620 ──ssh RemoteForward──▶ nuc d
 
 with the REST Control extension answering on `HACKER_REST_CONTROL_PORT=40620`.
 Environment/topology: meta repo
-`docs/important/dev-code-on-nuc-test-on-pp.md`; testing model:
-meta repo `docs/important/how-to-test-all.md`.
+`docs/important/dev-env/dev-code-on-nuc-test-on-pp.md`; testing model:
+meta repo `docs/important/testing/how-to-test-all.md`.
 
 The installed extension (`lamnguyenx.hacker-terminal-enhanced-2026.9.3`) was a
 copy built on Sep 8 — but it was **byte-identical** to the current `out/`, so
@@ -66,7 +66,7 @@ next command : {"extActive":true,"captured":"…SUMMARY…"}   ← works only no
 The pre-existing limitation is unchanged: the stable API still has no
 retroactive buffer read, so **restored terminals** have no history until a new
 command runs (see
-[`restored-terminal-limitation.md`](../../../../important/restored-terminal-limitation.md)).
+[`restored-terminal-limitation.md`](../../../../important/internals/restored-terminal-limitation.md)).
 `onStartupFinished` only removes the "first live command of the session is
 missed" gap.
 

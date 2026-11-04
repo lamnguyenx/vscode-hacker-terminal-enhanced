@@ -8,7 +8,7 @@ clean commit list; VSIX rebuilt and installed)
 `src/settings.ts`, `src/extension.ts`, `package.json` (+ `@xterm/headless`,
 new `emulatedCapture` setting, version), `tests/units/emulator_check.ts` (new),
 `tests/playwright/workbench.ts`, `tests/playwright/terminal-enhanced.spec.ts`,
-`Makefile`, `README.md`, `docs/important/how-to-test.md`, this doc.
+`Makefile`, `README.md`, `docs/important/testing/how-to-test.md`, this doc.
 
 ## 1. The symptom
 

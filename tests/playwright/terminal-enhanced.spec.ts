@@ -42,7 +42,7 @@ import {
  *   - the status-bar copy echo
  *
  * Prereqs: code-server up with the extension installed and the CDP browser
- * reachable on 9024 — see docs/important/how-to-test.md.
+ * reachable on 9024 — see docs/important/testing/how-to-test.md.
  */
 
 const STATUS_TEXT = 'Hacker Terminal Enhanced: copied command + output';

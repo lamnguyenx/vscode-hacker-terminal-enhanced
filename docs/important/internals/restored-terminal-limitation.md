@@ -140,7 +140,7 @@ to be identified or read: its pre-restart commands are already in the store.
 The one thing this does **not** recover is the following edge: a command that ran
 *before the extension ever started* (e.g. the extension was activated after the
 command), or output lost to the shell-integration streaming race (see
-[`how-to-test.md`](how-to-test.md) §deterministic commands). In normal use every
+[`how-to-test.md`](../testing/how-to-test.md) §deterministic commands). In normal use every
 command run while the extension host is alive is recorded.
 
 ---

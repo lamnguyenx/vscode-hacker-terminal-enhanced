@@ -11,7 +11,7 @@ CDP)
 `package.json`, `Makefile`, `.vscodeignore`, `tsconfig.webview.json`,
 `tests/units/history_check.ts`, `tests/units/store_check.ts`,
 `tests/playwright/workbench.ts`, `tests/playwright/terminal-enhanced.spec.ts`,
-`README.md`, `docs/important/how-to-test.md`, the **meta repo's**
+`README.md`, `docs/important/testing/how-to-test.md`, the **meta repo's**
 `docker-compose.yml` (harness service added).
 
 Four work streams, in order: (1) show the output in the right pane, (2)

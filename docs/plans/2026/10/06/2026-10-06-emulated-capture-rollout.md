@@ -9,7 +9,7 @@ typechecks green. Submodule commits `795fd2a` (emulated capture) and `aa44bb7`
 (`@xterm/headless`, `emulatedCapture`, version `2026.10.5`), `Makefile`,
 `tests/units/emulator_check.ts` (new), `tests/playwright/workbench.ts`,
 `tests/playwright/terminal-enhanced.spec.ts`, `README.md`,
-`docs/important/how-to-test.md`, `docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`.
+`docs/important/testing/how-to-test.md`, `docs/plans/2026/10/05/2026-10-05-tui-and-emulated-capture.md`.
 **Design detail:** the 10/05 plan doc has the full design; this doc is the
 session retrospective — what shipped, every wrong turn, and the lessons.
 
